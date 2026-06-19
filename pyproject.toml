@@ -1,0 +1,78 @@
+[project]
+name = "vllmctl"
+version = "0.1.0"
+description = "Declarative control plane and TUI for bare-metal vLLM servers."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Matteo Benvenuti", email = "matben32@gmail.com" },
+]
+keywords = ["vllm", "llm", "control-plane", "tui", "metrics", "prometheus"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Console :: Curses",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "rich>=13.7",
+    "textual>=0.85",
+    "typer>=0.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/Freim32/vllmctl"
+Repository = "https://github.com/Freim32/vllmctl"
+Issues = "https://github.com/Freim32/vllmctl/issues"
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.14.10",
+    "mypy>=1.0.0",
+    "poethepoet>=0.33.0",
+    "pytest>=8.0",
+    "pytest-timeout>=2.3",
+    "types-pyyaml>=6.0.12.20260518",
+]
+
+[project.scripts]
+vllmctl = "vllmctl.cli:app"
+
+[tool.poe.tasks]
+lint-fix = "uv run --extra dev ruff check --fix"
+format-code = "uv run --extra dev ruff format"
+type-check = "uv run --extra dev mypy --no-incremental"
+test = "uv run --extra dev pytest"
+
+[tool.poe.tasks.checks]
+sequence = ["lint-fix", "format-code", "type-check", "test"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 30
+addopts = "-ra"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vllmctl"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/vllmctl/py.typed" = "vllmctl/py.typed"
