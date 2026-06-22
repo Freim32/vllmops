@@ -67,6 +67,34 @@ def test_check_vllm_executable_present(project: Project) -> None:
     assert result.status == "ok"
 
 
+def test_check_vllm_version_filters_log_prefixed_lines(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lines starting with a log-level prefix are skipped when picking the version."""
+    if sys.platform == "win32":
+        fake = project.root / ".venv" / "Scripts" / "vllm.exe"
+    else:
+        fake = project.root / ".venv" / "bin" / "vllm"
+    fake.parent.mkdir(parents=True, exist_ok=True)
+    fake.write_text("dummy")
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = (
+            "WARNING 06-22 18:01:55 Using 'pin_memory=False'.\n"
+            "0.7.3\n"
+        )
+        stderr = ""
+
+    def fake_run(*args: object, **kwargs: object) -> FakeCompleted:
+        return FakeCompleted()
+
+    monkeypatch.setattr("vllmctl.doctor.subprocess.run", fake_run)
+    result = doctor.check_vllm_version(project)
+    assert result.status == "ok"
+    assert result.detail == "0.7.3"
+
+
 def test_check_hf_token_from_shell_env(
     monkeypatch: pytest.MonkeyPatch, project: Project
 ) -> None:

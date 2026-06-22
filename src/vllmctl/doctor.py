@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,10 @@ from vllmctl.config import load_model_file
 from vllmctl.project import Project, find_project_root, load_project
 
 Status = Literal["ok", "warn", "fail"]
+
+_LOG_LINE_PREFIX = re.compile(
+    r"^(WARNING|INFO|ERROR|DEBUG|CRITICAL)\b", re.IGNORECASE
+)
 
 
 @dataclass(frozen=True)
@@ -136,8 +141,9 @@ def check_vllm_version(project: Project) -> CheckResult:
             f"exit code {result.returncode}",
             hint=hint,
         )
-    out = result.stdout.strip().splitlines()
-    version = out[0] if out else "(no output)"
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    candidates = [line for line in lines if not _LOG_LINE_PREFIX.match(line)]
+    version = candidates[0] if candidates else (lines[0] if lines else "(no output)")
     return CheckResult("vllm version", "ok", version)
 
 
