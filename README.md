@@ -124,8 +124,24 @@ Models not declared in any profile fall into the synthetic `general` group. The 
 | `vllmctl command <name>` | Print the underlying vLLM command |
 | `vllmctl profile list \| show <p>` | Inspect profiles defined in config |
 | `vllmctl tui` | Launch the Textual TUI |
+| `vllmctl completion <shell>` | Print shell completion script (bash, zsh, fish, powershell) |
 
 Run `vllmctl <command> --help` for full options.
+
+## Shell completion
+
+```bash
+# bash
+vllmctl completion bash > ~/.local/share/bash-completion/completions/vllmctl
+
+# zsh (ensure `fpath+=~/.zfunc` and `autoload -U compinit && compinit` are in your .zshrc)
+vllmctl completion zsh > ~/.zfunc/_vllmctl
+
+# fish
+vllmctl completion fish > ~/.config/fish/completions/vllmctl.fish
+```
+
+Restart your shell. Alternative: `vllmctl --install-completion` auto-detects the current shell and installs in one step.
 
 ## Development
 

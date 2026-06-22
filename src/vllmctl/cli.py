@@ -776,5 +776,46 @@ def tui(
     VllmctlApp(options).run()
 
 
+@app.command()
+def completion(
+    shell: str = typer.Argument(
+        ..., help="Shell to generate completion for: bash, zsh, fish, or powershell."
+    ),
+) -> None:
+    """Print a shell completion script.
+
+    Redirect the output into your shell's completion directory:
+
+      bash: vllmctl completion bash > ~/.local/share/bash-completion/completions/vllmctl
+      zsh:  vllmctl completion zsh  > ~/.zfunc/_vllmctl   (ensure fpath includes ~/.zfunc)
+      fish: vllmctl completion fish > ~/.config/fish/completions/vllmctl.fish
+
+    Alternative: `vllmctl --install-completion` auto-detects the current shell.
+    """
+    from typer._completion_classes import (  # noqa: PLC0415
+        BashComplete,
+        FishComplete,
+        PowerShellComplete,
+        ZshComplete,
+    )
+
+    completers: dict[str, type] = {
+        "bash": BashComplete,
+        "zsh": ZshComplete,
+        "fish": FishComplete,
+        "powershell": PowerShellComplete,
+    }
+    if shell not in completers:
+        typer.echo(
+            f"Unsupported shell: {shell}. Use one of: {', '.join(completers)}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    click_command = typer.main.get_command(app)
+    completer = completers[shell](click_command, {}, "vllmctl", "_VLLMCTL_COMPLETE")
+    print(completer.source())
+
+
 if __name__ == "__main__":
     app()
