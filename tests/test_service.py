@@ -327,6 +327,178 @@ def test_valid_model_keeps_metrics_port_even_when_sibling_yaml_is_broken(
     assert good.status.metrics_port == 18001
 
 
+# --- list_profiles ---
+
+
+def _set_profiles(project: Project, profiles: dict[str, list[str]]) -> Project:
+    """Mutate the project config to add profiles, reload, return the new Project."""
+    import yaml as _yaml  # noqa: PLC0415
+
+    from vllmctl.project import load_project as _load_project  # noqa: PLC0415
+
+    cfg_path = project.config_path
+    raw = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    raw["profiles"] = profiles
+    cfg_path.write_text(_yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    return _load_project(project.root)
+
+
+def test_list_profiles_no_profiles_puts_everything_in_general(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    write_model_yaml(project, "b", sleeper_payload("b", port=18002))
+    views = service.list_profiles(project)
+    assert [v.name for v in views] == ["general"]
+    assert {e.name for e in views[0].entries} == {"a", "b"}
+
+
+def test_list_profiles_unassigned_models_go_to_general(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    write_model_yaml(project, "b", sleeper_payload("b", port=18002))
+    write_model_yaml(project, "c", sleeper_payload("c", port=18003))
+    project = _set_profiles(project, {"dev": ["a", "b"]})
+    views = service.list_profiles(project)
+    by_name = {v.name: v for v in views}
+    assert {e.name for e in by_name["dev"].entries} == {"a", "b"}
+    assert {e.name for e in by_name["general"].entries} == {"c"}
+
+
+def test_list_profiles_preserves_declaration_order(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    write_model_yaml(project, "b", sleeper_payload("b", port=18002))
+    project = _set_profiles(project, {"prod": ["b"], "dev": ["a"]})
+    views = service.list_profiles(project)
+    # general is always appended last
+    assert [v.name for v in views] == ["prod", "dev", "general"]
+
+
+def test_list_profiles_missing_member_is_reported(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    project = _set_profiles(project, {"dev": ["a", "ghost"]})
+    views = service.list_profiles(project)
+    dev = next(v for v in views if v.name == "dev")
+    assert [e.name for e in dev.entries] == ["a"]
+    assert dev.missing == ["ghost"]
+
+
+def test_list_profiles_empty_profile_returned_for_show(project: Project) -> None:
+    """list_profiles returns declared-but-empty profiles untrimmed; the consumer filters."""
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    project = _set_profiles(project, {"placeholder": [], "dev": ["a"]})
+    views = service.list_profiles(project)
+    placeholder = next(v for v in views if v.name == "placeholder")
+    assert placeholder.entries == []
+    assert placeholder.total_count == 0
+
+
+def test_list_profiles_general_can_be_empty(project: Project) -> None:
+    """When all catalog models belong to a profile, general is still listed but empty."""
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    project = _set_profiles(project, {"dev": ["a"]})
+    views = service.list_profiles(project)
+    general = next(v for v in views if v.name == "general")
+    assert general.entries == []
+
+
+def test_list_profiles_counts(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    write_model_yaml(project, "b", sleeper_payload("b", port=18002))
+    views = service.list_profiles(project)
+    general = next(v for v in views if v.name == "general")
+    assert general.total_count == 2
+    assert general.running_count == 0  # no spawn
+
+
+def test_list_profiles_broken_member_is_still_in_profile(project: Project) -> None:
+    """A broken YAML referenced in a profile still gets routed to that profile."""
+    write_model_yaml(project, "ok", sleeper_payload("ok", port=18001))
+    bad = project.models_dir / "bad.yaml"
+    bad.write_text("name: bad\nbogus_field: 1\n", encoding="utf-8")
+    project = _set_profiles(project, {"dev": ["ok", "bad"]})
+    views = service.list_profiles(project)
+    dev = next(v for v in views if v.name == "dev")
+    assert {e.name for e in dev.entries} == {"ok", "bad"}
+    assert any(e.is_broken for e in dev.entries)
+
+
+# --- bulk profile operations (logic, no real spawn) ---
+
+
+def test_start_profile_unknown_raises(project: Project) -> None:
+    with pytest.raises(service.UnknownProfileError):
+        service.start_profile(project, "ghost")
+
+
+def test_stop_profile_unknown_raises(project: Project) -> None:
+    with pytest.raises(service.UnknownProfileError):
+        service.stop_profile(project, "ghost")
+
+
+def test_restart_profile_unknown_raises(project: Project) -> None:
+    with pytest.raises(service.UnknownProfileError):
+        service.restart_profile(project, "ghost")
+
+
+def test_start_profile_marks_broken_yaml_as_skipped(project: Project) -> None:
+    """A broken YAML in the profile is skipped, not attempted."""
+    bad = project.models_dir / "bad.yaml"
+    bad.write_text("name: bad\nbogus_field: 1\n", encoding="utf-8")
+    project = _set_profiles(project, {"dev": ["bad"]})
+    result = service.start_profile(project, "dev")
+    assert result.succeeded == []
+    assert result.skipped == [("bad", "invalid YAML")]
+    assert result.failed == []
+
+
+def test_stop_profile_skips_not_running(project: Project) -> None:
+    """All members already stopped → all in skipped, none in succeeded."""
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    write_model_yaml(project, "b", sleeper_payload("b", port=18002))
+    project = _set_profiles(project, {"dev": ["a", "b"]})
+    result = service.stop_profile(project, "dev")
+    assert result.succeeded == []
+    assert {name for name, _ in result.skipped} == {"a", "b"}
+    assert all(reason == "not running" for _, reason in result.skipped)
+    assert result.failed == []
+
+
+def test_restart_profile_skips_broken_yaml(project: Project) -> None:
+    """restart_profile cannot start a broken YAML; it's skipped."""
+    write_model_yaml(project, "ok", sleeper_payload("ok", port=18001))
+    bad = project.models_dir / "bad.yaml"
+    bad.write_text("name: bad\nbogus_field: 1\n", encoding="utf-8")
+    project = _set_profiles(project, {"dev": ["ok", "bad"]})
+    result = service.restart_profile(project, "dev")
+    assert ("bad", "invalid YAML") in result.skipped
+    # "ok" will be attempted; on Windows/non-POSIX it may fail, but the
+    # broken classification is what we're asserting here.
+
+
+def test_start_profile_empty_profile_returns_empty_result(project: Project) -> None:
+    """A profile that's not declared in catalog (only in config) → empty entries → no-op."""
+    project = _set_profiles(project, {"dev": ["ghost"]})  # ghost not in catalog
+    result = service.start_profile(project, "dev")
+    assert result.total == 0
+    assert result.profile == "dev"
+    assert result.action == "start"
+
+
+def test_bulk_result_total_counts_correctly(project: Project) -> None:
+    """BulkResult.total sums succeeded + skipped + failed."""
+    project = _set_profiles(project, {"dev": []})
+    result = service.start_profile(project, "dev")
+    assert result.total == 0
+
+
+def test_start_profile_general_works_without_declaration(project: Project) -> None:
+    """The synthetic 'general' profile must accept bulk operations even
+    though it's never declared in config."""
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    result = service.start_profile(project, service.GENERAL_PROFILE)
+    assert result.profile == service.GENERAL_PROFILE
+    # On non-POSIX, the start will fail; what matters is the routing reaches it.
+    assert result.total == 1
+
+
 def test_lookup_metrics_port_survives_broken_siblings(project: Project) -> None:
     """The CLI/standalone path also needs to keep working when one YAML is bad."""
     write_model_yaml(project, "good", sleeper_payload("good", port=18001))

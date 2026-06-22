@@ -9,6 +9,7 @@ import shutil
 import subprocess
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Literal
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -26,7 +27,7 @@ from vllmctl.service import (
     ModelNotRunningError,
     UnknownModelError,
 )
-from vllmctl.tui.widgets import ErrorsPanel, GpuPanel, LogViewer, MetricsPanel, ModelsTable
+from vllmctl.tui.widgets import ErrorsPanel, GpuPanel, LogViewer, MetricsPanel, ModelsTree
 
 STATUS_REFRESH_SECONDS = 2.0
 LOG_POLL_SECONDS = 0.5
@@ -93,10 +94,26 @@ class VllmctlApp(App):
 
     LOG_CLIPBOARD_LIMIT_BYTES = 1_000_000  # 1 MB cap so we don't blow up OSC 52
 
+    _MODEL_ONLY_ACTIONS = frozenset({"edit_model", "copy_logs"})
+    _MODEL_OR_PROFILE_ACTIONS = frozenset(
+        {"start_model", "stop_model", "restart_model"}
+    )
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        del parameters
+        if action in self._MODEL_ONLY_ACTIONS:
+            return self._models.selected_model_name is not None
+        if action in self._MODEL_OR_PROFILE_ACTIONS:
+            return (
+                self._models.selected_model_name is not None
+                or self._models.selected_profile_name is not None
+            )
+        return True
+
     def __init__(self, options: TuiOptions) -> None:
         super().__init__()
         self._options = options
-        self._models = ModelsTable()
+        self._models = ModelsTree()
         self._logs = LogViewer()
         self._metrics = MetricsPanel()
         self._gpu_panel = GpuPanel()
@@ -166,7 +183,7 @@ class VllmctlApp(App):
 
     def _refresh_statuses(self) -> None:
         try:
-            entries = service.list_catalog_entries(self._options.project)
+            views = service.list_profiles(self._options.project)
         except Exception as exc:
             self.notify(
                 f"failed to read catalog: {exc}",
@@ -175,12 +192,13 @@ class VllmctlApp(App):
                 markup=False,
             )
             return
-        self._entries = entries
+        self._entries = [entry for view in views for entry in view.entries]
         self._refresh_gpu_indices()
-        self._models.render_entries(entries)
+        self._models.render_profiles(views)
         self._update_header_subtitle()
         self._sync_log_attachment()
         self._render_metrics_panel()
+        self.refresh_bindings()
 
     def _refresh_gpu_indices(self) -> None:
         """Re-derive per-model CUDA_VISIBLE_DEVICES from the current catalog."""
@@ -295,22 +313,23 @@ class VllmctlApp(App):
 
     # --- table selection events ---
 
-    @on(ModelsTable.RowHighlighted)
-    def _on_row_highlighted(self, event: ModelsTable.RowHighlighted) -> None:
+    @on(ModelsTree.NodeHighlighted)
+    def _on_node_highlighted(self, event: ModelsTree.NodeHighlighted) -> None:
         del event
         self._sync_log_attachment()
         self._render_metrics_panel()
+        self.refresh_bindings()
 
     # --- key actions ---
 
     def action_start_model(self) -> None:
-        self._launch_user_action("start", self._do_start)
+        self._launch_user_action("start", self._do_start, self._do_start_profile)
 
     def action_stop_model(self) -> None:
-        self._launch_user_action("stop", self._do_stop)
+        self._launch_user_action("stop", self._do_stop, self._do_stop_profile)
 
     def action_restart_model(self) -> None:
-        self._launch_user_action("restart", self._do_restart)
+        self._launch_user_action("restart", self._do_restart, self._do_restart_profile)
 
     def action_refresh_now(self) -> None:
         self._refresh_statuses()
@@ -417,10 +436,16 @@ class VllmctlApp(App):
     def _launch_user_action(
         self,
         label: str,
-        work: Callable[[str, str], Awaitable[None]],
+        work_model: Callable[[str, str], Awaitable[None]],
+        work_profile: Callable[[str, str], Awaitable[None]],
     ) -> None:
         if self._busy:
             self.notify("another action is already running", severity="warning", timeout=2)
+            return
+        profile = self._models.selected_profile_name
+        if profile is not None:
+            self._busy = True
+            self.run_worker(work_profile(profile, label), exclusive=True)
             return
         name = self._models.selected_model_name
         if name is None:
@@ -437,7 +462,7 @@ class VllmctlApp(App):
             )
             return
         self._busy = True
-        self.run_worker(work(name, label), exclusive=True)
+        self.run_worker(work_model(name, label), exclusive=True)
 
     async def _do_start(self, name: str, label: str) -> None:
         try:
@@ -478,6 +503,83 @@ class VllmctlApp(App):
             self._busy = False
             self._histories.pop(name, None)
             self._refresh_statuses()
+
+    async def _do_start_profile(self, profile: str, label: str) -> None:
+        del label
+        try:
+            result = await asyncio.to_thread(
+                service.start_profile, self._options.project, profile
+            )
+            self._notify_bulk(result)
+        except service.UnknownProfileError:
+            self.notify(f"unknown profile: {profile}", severity="error", timeout=3)
+        except Exception as exc:
+            self.notify(
+                f"profile start failed: {exc}", severity="error", timeout=5, markup=False
+            )
+        finally:
+            self._busy = False
+            self._refresh_statuses()
+
+    async def _do_stop_profile(self, profile: str, label: str) -> None:
+        del label
+        try:
+            result = await asyncio.to_thread(
+                service.stop_profile, self._options.project, profile
+            )
+            self._notify_bulk(result)
+            for name in result.succeeded:
+                self._histories.pop(name, None)
+        except service.UnknownProfileError:
+            self.notify(f"unknown profile: {profile}", severity="error", timeout=3)
+        except Exception as exc:
+            self.notify(
+                f"profile stop failed: {exc}", severity="error", timeout=5, markup=False
+            )
+        finally:
+            self._busy = False
+            self._refresh_statuses()
+
+    async def _do_restart_profile(self, profile: str, label: str) -> None:
+        del label
+        try:
+            result = await asyncio.to_thread(
+                service.restart_profile, self._options.project, profile
+            )
+            self._notify_bulk(result)
+            for name in result.succeeded:
+                self._histories.pop(name, None)
+        except service.UnknownProfileError:
+            self.notify(f"unknown profile: {profile}", severity="error", timeout=3)
+        except Exception as exc:
+            self.notify(
+                f"profile restart failed: {exc}", severity="error", timeout=5, markup=False
+            )
+        finally:
+            self._busy = False
+            self._refresh_statuses()
+
+    def _notify_bulk(self, result: service.BulkResult) -> None:
+        parts: list[str] = []
+        if result.succeeded:
+            parts.append(f"{len(result.succeeded)} {result.action}ed")
+        if result.skipped:
+            parts.append(f"{len(result.skipped)} skipped")
+        if result.failed:
+            parts.append(f"{len(result.failed)} failed")
+        if not parts:
+            parts.append("nothing to do")
+        message = f"{result.profile}: " + " · ".join(parts)
+        severity: Literal["information", "warning", "error"]
+        if result.failed:
+            severity = "error"
+            details = ", ".join(name for name, _ in result.failed)
+            message += f"\nfailed: {details}"
+        elif result.skipped and not result.succeeded:
+            severity = "warning"
+        else:
+            severity = "information"
+        self.notify(message, severity=severity, timeout=4, markup=False)
 
 
 def _resolve_editor(configured: str | None = None) -> str | None:

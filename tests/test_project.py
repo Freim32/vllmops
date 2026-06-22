@@ -189,3 +189,55 @@ def test_resolve_returns_absolute_paths(tmp_path: Path) -> None:
     project = load_project(tmp_path)
     assert project.resolve("configs/models").is_absolute()
     assert project.resolve("/already/absolute").is_absolute()
+
+
+def _rewrite_config_profiles(tmp_path: Path, profiles: dict[str, list[str]]) -> None:
+    """Set the `profiles` block in the project config.yaml. Helper for profile tests."""
+    import yaml as _yaml  # noqa: PLC0415
+
+    cfg_path = tmp_path / PROJECT_DIR / PROJECT_CONFIG
+    raw = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    raw["profiles"] = profiles
+    cfg_path.write_text(_yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+
+
+def test_profiles_default_is_empty(tmp_path: Path) -> None:
+    init_project(tmp_path)
+    project = load_project(tmp_path)
+    assert project.config.profiles == {}
+
+
+def test_profiles_round_trip_from_yaml(tmp_path: Path) -> None:
+    init_project(tmp_path)
+    _rewrite_config_profiles(tmp_path, {"dev": ["a", "b"], "prod": ["c"]})
+    project = load_project(tmp_path)
+    assert project.config.profiles == {"dev": ["a", "b"], "prod": ["c"]}
+
+
+def test_profiles_reject_reserved_general_name(tmp_path: Path) -> None:
+    init_project(tmp_path)
+    _rewrite_config_profiles(tmp_path, {"general": ["a"]})
+    with pytest.raises(Exception, match="reserved"):
+        load_project(tmp_path)
+
+
+def test_profiles_reject_duplicate_model_across_profiles(tmp_path: Path) -> None:
+    init_project(tmp_path)
+    _rewrite_config_profiles(tmp_path, {"dev": ["a", "b"], "prod": ["b"]})
+    with pytest.raises(Exception, match="at most one profile"):
+        load_project(tmp_path)
+
+
+def test_profiles_reject_invalid_profile_name(tmp_path: Path) -> None:
+    init_project(tmp_path)
+    _rewrite_config_profiles(tmp_path, {"has spaces": ["a"]})
+    with pytest.raises(Exception, match="invalid profile name"):
+        load_project(tmp_path)
+
+
+def test_profiles_empty_profile_is_valid(tmp_path: Path) -> None:
+    """Declared but empty profile is allowed (placeholder); rendering filters it out."""
+    init_project(tmp_path)
+    _rewrite_config_profiles(tmp_path, {"placeholder": []})
+    project = load_project(tmp_path)
+    assert project.config.profiles == {"placeholder": []}

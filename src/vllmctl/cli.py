@@ -20,6 +20,8 @@ from vllmctl.service import (
 )
 
 app = typer.Typer(help="Manage bare-metal vLLM models with a TUI for live metrics.")
+profile_app = typer.Typer(help="Inspect model profiles defined in .vllmctl/config.yaml.")
+app.add_typer(profile_app, name="profile")
 console = Console()
 
 
@@ -216,6 +218,81 @@ def _print_status(status: ModelStatus) -> None:
     console.print(f"{status.name}: {state} pid={pid_display} metrics={metrics_display}{stale}")
 
 
+def _print_bulk_result(result: service.BulkResult) -> None:
+    summary_parts: list[str] = []
+    if result.succeeded:
+        summary_parts.append(f"[green]{len(result.succeeded)} {result.action}ed[/green]")
+    if result.skipped:
+        summary_parts.append(f"[yellow]{len(result.skipped)} skipped[/yellow]")
+    if result.failed:
+        summary_parts.append(f"[bold red]{len(result.failed)} failed[/bold red]")
+    if not summary_parts:
+        summary_parts.append("[dim]nothing to do[/dim]")
+    console.print(f"[bold]{result.profile}[/bold]: " + ", ".join(summary_parts))
+
+    for name, reason in result.skipped:
+        console.print(f"  [yellow]skip[/yellow] {name} [dim]({reason})[/dim]")
+    for name, error in result.failed:
+        console.print(f"  [red]fail[/red] {name} [dim]{error}[/dim]")
+
+
+def _require_one_target(
+    model_name: str | None, profile: str | None, command: str
+) -> None:
+    """Enforce exactly one of model_name or --profile."""
+    if model_name is None and profile is None:
+        console.print(
+            f"[bold red]Usage:[/bold red] vllmctl {command} <model_name> | --profile <name>"
+        )
+        raise typer.Exit(code=2)
+    if model_name is not None and profile is not None:
+        console.print(
+            "[bold red]Provide either a model name or --profile, not both[/bold red]"
+        )
+        raise typer.Exit(code=2)
+
+
+def _wait_for_profile_in_parallel(
+    project: Project,
+    names: list[str],
+    timeout: float,
+    config_dir: Path | None,
+    health_host: str,
+) -> tuple[list[str], list[tuple[str, str]]]:
+    """Probe /health on each name concurrently. Returns (ready, failed)."""
+    if not names:
+        return [], []
+    from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+
+    ready: list[str] = []
+    failed: list[tuple[str, str]] = []
+    max_workers = min(len(names), 8)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(
+                service.wait_for_ready,
+                project,
+                name,
+                timeout=timeout,
+                config_dir=config_dir,
+                host=health_host,
+            ): name
+            for name in names
+        }
+        for future, name in futures.items():
+            try:
+                future.result()
+                ready.append(name)
+            except Exception as exc:
+                failed.append((name, _format_exc(exc)))
+    return ready, failed
+
+
+def _format_exc(exc: BaseException) -> str:
+    text = str(exc).strip().splitlines()
+    return text[0] if text else exc.__class__.__name__
+
+
 def _print_log_tail(project: Project, model_name: str, lines: int = 30) -> None:
     tail = service.tail_log(project, model_name, lines=lines)
     if not tail:
@@ -228,7 +305,10 @@ def _print_log_tail(project: Project, model_name: str, lines: int = 30) -> None:
 
 @app.command()
 def start(
-    model_name: str = typer.Argument(..., help="Configured model name."),
+    model_name: str | None = typer.Argument(None, help="Configured model name."),
+    profile: str | None = typer.Option(
+        None, "--profile", "-P", help="Start every model in this profile in parallel."
+    ),
     config_dir: Path | None = typer.Option(None, "--config-dir", "-c", help="Models directory."),
     wait: bool = typer.Option(
         True,
@@ -243,7 +323,36 @@ def start(
     Blocks until vLLM responds on /health (default). vLLM downloads the model
     from HuggingFace on first start; HF_TOKEN is read from .env or the shell.
     """
+    _require_one_target(model_name, profile, "start")
     project = service.get_project()
+
+    if profile is not None:
+        try:
+            result = service.start_profile(project, profile, config_dir=config_dir)
+        except service.UnknownProfileError as exc:
+            console.print(f"[bold red]Unknown profile:[/bold red] {profile}")
+            raise typer.Exit(code=1) from exc
+
+        _print_bulk_result(result)
+
+        if wait and result.succeeded:
+            console.print(
+                f"[dim]waiting on /health for {len(result.succeeded)}"
+                f" model(s) in parallel...[/dim]"
+            )
+            ready_names, wait_failed = _wait_for_profile_in_parallel(
+                project, result.succeeded, wait_timeout, config_dir, health_host
+            )
+            for name in ready_names:
+                console.print(f"  [green]ready[/green] {name}")
+            for name, err in wait_failed:
+                console.print(f"  [red]not ready[/red] {name} [dim]{err}[/dim]")
+            if wait_failed:
+                raise typer.Exit(code=1)
+
+        raise typer.Exit(code=1 if result.failed else 0)
+
+    assert model_name is not None  # narrowed by _require_one_target
     try:
         status = service.start_model(project, model_name, config_dir=config_dir)
     except ModelAlreadyRunningError as exc:
@@ -309,11 +418,29 @@ def start(
 
 @app.command()
 def stop(
-    model_name: str = typer.Argument(..., help="Configured model name."),
+    model_name: str | None = typer.Argument(None, help="Configured model name."),
+    profile: str | None = typer.Option(
+        None, "--profile", "-P", help="Stop every running model in this profile."
+    ),
+    config_dir: Path | None = typer.Option(None, "--config-dir", "-c", help="Models directory."),
     timeout: float = typer.Option(30.0, "--timeout", "-t", help="Seconds before SIGKILL."),
 ) -> None:
     """Stop a running vLLM server (SIGTERM, then SIGKILL after timeout)."""
+    _require_one_target(model_name, profile, "stop")
     project = service.get_project()
+
+    if profile is not None:
+        try:
+            result = service.stop_profile(
+                project, profile, config_dir=config_dir, timeout=timeout
+            )
+        except service.UnknownProfileError as exc:
+            console.print(f"[bold red]Unknown profile:[/bold red] {profile}")
+            raise typer.Exit(code=1) from exc
+        _print_bulk_result(result)
+        raise typer.Exit(code=1 if result.failed else 0)
+
+    assert model_name is not None
     try:
         service.stop_model(project, model_name, timeout=timeout)
     except ModelNotRunningError as exc:
@@ -328,7 +455,10 @@ def stop(
 
 @app.command()
 def restart(
-    model_name: str = typer.Argument(..., help="Configured model name."),
+    model_name: str | None = typer.Argument(None, help="Configured model name."),
+    profile: str | None = typer.Option(
+        None, "--profile", "-P", help="Restart every model in this profile in parallel."
+    ),
     config_dir: Path | None = typer.Option(None, "--config-dir", "-c", help="Models directory."),
     timeout: float = typer.Option(30.0, "--timeout", "-t", help="Seconds before SIGKILL."),
     wait: bool = typer.Option(True, "--wait/--no-wait", help="Block until /health responds."),
@@ -336,7 +466,38 @@ def restart(
     health_host: str = typer.Option("127.0.0.1", "--health-host", help="Host for /health probe."),
 ) -> None:
     """Restart a vLLM server (stop if running, then start)."""
+    _require_one_target(model_name, profile, "restart")
     project = service.get_project()
+
+    if profile is not None:
+        try:
+            result = service.restart_profile(
+                project, profile, config_dir=config_dir, timeout=timeout
+            )
+        except service.UnknownProfileError as exc:
+            console.print(f"[bold red]Unknown profile:[/bold red] {profile}")
+            raise typer.Exit(code=1) from exc
+
+        _print_bulk_result(result)
+
+        if wait and result.succeeded:
+            console.print(
+                f"[dim]waiting on /health for {len(result.succeeded)}"
+                f" model(s) in parallel...[/dim]"
+            )
+            ready_names, wait_failed = _wait_for_profile_in_parallel(
+                project, result.succeeded, wait_timeout, config_dir, health_host
+            )
+            for name in ready_names:
+                console.print(f"  [green]ready[/green] {name}")
+            for name, err in wait_failed:
+                console.print(f"  [red]not ready[/red] {name} [dim]{err}[/dim]")
+            if wait_failed:
+                raise typer.Exit(code=1)
+
+        raise typer.Exit(code=1 if result.failed else 0)
+
+    assert model_name is not None
     try:
         status = service.restart_model(project, model_name, timeout=timeout, config_dir=config_dir)
     except UnknownModelError as exc:
@@ -498,6 +659,93 @@ def logs(
 
     if follow:
         _follow_log(paths.log_path)
+
+
+@profile_app.command("list")
+def profile_list(
+    config_dir: Path | None = typer.Option(None, "--config-dir", "-c", help="Models directory."),
+) -> None:
+    """List all profiles with running/total counts."""
+    project = service.get_project()
+    views = service.list_profiles(project, config_dir)
+    renderable = [v for v in views if v.entries]
+    if not renderable:
+        console.print("[yellow]no models in any profile[/yellow]")
+        return
+
+    table = Table(title="Profiles")
+    table.add_column("Profile")
+    table.add_column("Models", justify="right")
+    table.add_column("Running", justify="right")
+    table.add_column("Missing", justify="right")
+    table.add_column("Members")
+    for view in renderable:
+        members = ", ".join(entry.name for entry in view.entries)
+        style = "dim" if view.is_general else ""
+        if view.is_general:
+            missing = "-"
+        elif view.missing:
+            missing = f"[yellow]{len(view.missing)}[/yellow]"
+        else:
+            missing = "0"
+        table.add_row(
+            f"[{style}]{view.name}[/{style}]" if style else view.name,
+            str(view.total_count),
+            str(view.running_count),
+            missing,
+            members,
+        )
+    console.print(table)
+    if any(v.missing for v in renderable):
+        console.print(
+            "[dim]profiles with missing members: run"
+            " `vllmctl profile show <name>` for details[/dim]"
+        )
+
+
+@profile_app.command("show")
+def profile_show(
+    profile_name: str = typer.Argument(..., help="Profile name (use 'general' for unassigned models)."),
+    config_dir: Path | None = typer.Option(None, "--config-dir", "-c", help="Models directory."),
+) -> None:
+    """Show a profile's members, their state, and any declared-but-missing models."""
+    project = service.get_project()
+    views = service.list_profiles(project, config_dir)
+    view = next((v for v in views if v.name == profile_name), None)
+    if view is None:
+        console.print(f"[bold red]Unknown profile:[/bold red] {profile_name}")
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold]Profile:[/bold] {view.name}")
+    if view.entries:
+        table = Table(show_header=True)
+        table.add_column("Name")
+        table.add_column("State")
+        table.add_column("Port", justify="right")
+        table.add_column("PID", justify="right")
+        for entry in view.entries:
+            status = entry.status
+            if entry.is_broken:
+                state = "[red]invalid[/red]"
+                port = "-"
+                pid = "-"
+            elif status is not None and status.running:
+                state = "[green]running[/green]"
+                port = str(status.metrics_port or "-")
+                pid = str(status.pid or "-")
+            else:
+                state = "stopped"
+                port = str(status.metrics_port or "-") if status else "-"
+                pid = "-"
+            table.add_row(entry.name, state, port, pid)
+        console.print(table)
+    else:
+        console.print("[dim]no models in this profile[/dim]")
+
+    if view.missing:
+        console.print(
+            f"\n[yellow]declared but not in catalog:[/yellow] {', '.join(view.missing)}"
+        )
 
 
 @app.command()

@@ -23,7 +23,7 @@ from vllmctl.config import (
     load_catalog,
     load_catalog_or_empty,
 )
-from vllmctl.project import Project, init_project, load_project
+from vllmctl.project import GENERAL_PROFILE, Project, init_project, load_project
 
 
 class ModelAlreadyExistsError(FileExistsError):
@@ -48,6 +48,10 @@ class ModelStartupFailedError(RuntimeError):
 
 class ModelStartupTimeoutError(TimeoutError):
     """Raised when wait_for_ready exceeds its timeout without /health responding."""
+
+
+class UnknownProfileError(LookupError):
+    """Raised when a requested profile name is not declared in config."""
 
 
 class VllmExecutableNotFoundError(RuntimeError):
@@ -444,6 +448,250 @@ def list_catalog_entries(
         entries.append(CatalogEntry(name=model.name, yaml_path=path, status=status))
 
     return entries
+
+
+@dataclass(frozen=True)
+class ProfileView:
+    """A profile resolved against the current catalog."""
+
+    name: str
+    entries: list[CatalogEntry]
+    missing: list[str]
+
+    @property
+    def is_general(self) -> bool:
+        return self.name == GENERAL_PROFILE
+
+    @property
+    def running_count(self) -> int:
+        return sum(1 for e in self.entries if e.status is not None and e.status.running)
+
+    @property
+    def total_count(self) -> int:
+        return len(self.entries)
+
+
+def list_profiles(
+    project: Project,
+    config_dir: Path | None = None,
+) -> list[ProfileView]:
+    """Return all declared profiles in order, plus the synthetic 'general' catch-all.
+
+    Profiles are returned untrimmed: an empty profile (declared but with no
+    catalog matches) is still in the list so `profile show` can report it.
+    Use `[v for v in list_profiles(...) if v.entries]` to filter for rendering.
+    """
+    entries = list_catalog_entries(project, config_dir)
+    by_name = {entry.name: entry for entry in entries}
+
+    assigned: set[str] = set()
+    views: list[ProfileView] = []
+
+    for profile_name, model_names in project.config.profiles.items():
+        profile_entries: list[CatalogEntry] = []
+        missing: list[str] = []
+        for model_name in model_names:
+            entry = by_name.get(model_name)
+            if entry is None:
+                missing.append(model_name)
+            else:
+                profile_entries.append(entry)
+                assigned.add(model_name)
+        views.append(ProfileView(name=profile_name, entries=profile_entries, missing=missing))
+
+    general_entries = [entry for entry in entries if entry.name not in assigned]
+    views.append(ProfileView(name=GENERAL_PROFILE, entries=general_entries, missing=[]))
+
+    return views
+
+
+@dataclass(frozen=True)
+class BulkResult:
+    """Outcome of a profile-wide lifecycle operation.
+
+    Idempotent contract: re-running the same action on the same profile is safe,
+    and the "succeeded" set only counts models the operation actually transitioned.
+    Models already in the target state land in "skipped", failures in "failed".
+    """
+
+    profile: str
+    action: str
+    succeeded: list[str]
+    skipped: list[tuple[str, str]]
+    failed: list[tuple[str, str]]
+
+    @property
+    def total(self) -> int:
+        return len(self.succeeded) + len(self.skipped) + len(self.failed)
+
+
+def _find_profile(views: list[ProfileView], name: str) -> ProfileView | None:
+    for view in views:
+        if view.name == name:
+            return view
+    return None
+
+
+def _short_error(exc: BaseException) -> str:
+    text = str(exc).strip().splitlines()
+    return text[0] if text else exc.__class__.__name__
+
+
+def _run_in_parallel(
+    items: list[CatalogEntry],
+    work: Callable[[CatalogEntry], object],
+) -> tuple[list[str], list[tuple[str, str]]]:
+    """Run `work(entry)` on each item concurrently, collect succeeded vs failed."""
+    succeeded: list[str] = []
+    failed: list[tuple[str, str]] = []
+    if not items:
+        return succeeded, failed
+    from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+
+    max_workers = min(len(items), 8)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(work, entry): entry for entry in items}
+        for future, entry in futures.items():
+            try:
+                future.result()
+                succeeded.append(entry.name)
+            except Exception as exc:
+                failed.append((entry.name, _short_error(exc)))
+    return succeeded, failed
+
+
+def start_profile(
+    project: Project,
+    profile_name: str,
+    config_dir: Path | None = None,
+) -> BulkResult:
+    """Start every model in the profile in parallel. Idempotent.
+
+    Skips already-running and broken-YAML members. Failures on one model never
+    abort the others. Raises UnknownProfileError if the profile is not declared.
+    """
+    views = list_profiles(project, config_dir)
+    view = _find_profile(views, profile_name)
+    if view is None:
+        raise UnknownProfileError(profile_name)
+
+    skipped: list[tuple[str, str]] = []
+    to_start: list[CatalogEntry] = []
+    for entry in view.entries:
+        if entry.is_broken:
+            skipped.append((entry.name, "invalid YAML"))
+            continue
+        if entry.status is not None and entry.status.running:
+            skipped.append((entry.name, "already running"))
+            continue
+        to_start.append(entry)
+
+    succeeded, failed = _run_in_parallel(
+        to_start,
+        lambda entry: start_model(project, entry.name, config_dir=config_dir),
+    )
+    return BulkResult(
+        profile=profile_name,
+        action="start",
+        succeeded=succeeded,
+        skipped=skipped,
+        failed=failed,
+    )
+
+
+def stop_profile(
+    project: Project,
+    profile_name: str,
+    config_dir: Path | None = None,
+    timeout: float = 30.0,
+) -> BulkResult:
+    """Stop every running model in the profile in parallel. Idempotent.
+
+    Broken YAMLs are still attempted (stop is PID-based and doesn't need the
+    YAML). Already-stopped models land in skipped.
+    """
+    views = list_profiles(project, config_dir)
+    view = _find_profile(views, profile_name)
+    if view is None:
+        raise UnknownProfileError(profile_name)
+
+    skipped: list[tuple[str, str]] = []
+    to_stop: list[CatalogEntry] = []
+    for entry in view.entries:
+        if entry.is_broken:
+            to_stop.append(entry)
+            continue
+        if entry.status is None or not entry.status.running:
+            skipped.append((entry.name, "not running"))
+            continue
+        to_stop.append(entry)
+
+    succeeded: list[str] = []
+    failed: list[tuple[str, str]] = []
+    if to_stop:
+        from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+
+        max_workers = min(len(to_stop), 8)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(stop_model, project, entry.name, timeout): entry
+                for entry in to_stop
+            }
+            for future, entry in futures.items():
+                try:
+                    future.result()
+                    succeeded.append(entry.name)
+                except ModelNotRunningError:
+                    skipped.append((entry.name, "not running"))
+                except Exception as exc:
+                    failed.append((entry.name, _short_error(exc)))
+
+    return BulkResult(
+        profile=profile_name,
+        action="stop",
+        succeeded=succeeded,
+        skipped=skipped,
+        failed=failed,
+    )
+
+
+def restart_profile(
+    project: Project,
+    profile_name: str,
+    config_dir: Path | None = None,
+    timeout: float = 30.0,
+) -> BulkResult:
+    """Restart every model in the profile in parallel. Idempotent.
+
+    Stopped models get started. Running models get stop+start. Broken YAMLs
+    are skipped (restart needs the YAML to start back up).
+    """
+    views = list_profiles(project, config_dir)
+    view = _find_profile(views, profile_name)
+    if view is None:
+        raise UnknownProfileError(profile_name)
+
+    skipped: list[tuple[str, str]] = []
+    to_restart: list[CatalogEntry] = []
+    for entry in view.entries:
+        if entry.is_broken:
+            skipped.append((entry.name, "invalid YAML"))
+            continue
+        to_restart.append(entry)
+
+    succeeded, failed = _run_in_parallel(
+        to_restart,
+        lambda entry: restart_model(
+            project, entry.name, timeout=timeout, config_dir=config_dir
+        ),
+    )
+    return BulkResult(
+        profile=profile_name,
+        action="restart",
+        succeeded=succeeded,
+        skipped=skipped,
+        failed=failed,
+    )
 
 
 def _build_model_status(

@@ -277,3 +277,93 @@ def test_wait_for_ready_detects_real_process_death(project: Project) -> None:
 
     with pytest.raises(ModelStartupFailedError):
         service.wait_for_ready(project, "fail", timeout=2.0, interval=0.1)
+
+
+# --- bulk profile operations: real spawns in parallel ---
+
+
+def _set_profiles_lifecycle(project: Project, profiles: dict) -> Project:
+    """Local helper to mutate config.yaml and reload."""
+    import yaml as _yaml  # noqa: PLC0415
+
+    from vllmctl.project import load_project as _load_project  # noqa: PLC0415
+
+    cfg_path = project.config_path
+    raw = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    raw["profiles"] = profiles
+    cfg_path.write_text(_yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    return _load_project(project.root)
+
+
+def test_start_profile_starts_all_members(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=18101))
+    write_model_yaml(project, "b", sleeper_payload("b", port=18102))
+    project = _set_profiles_lifecycle(project, {"dev": ["a", "b"]})
+    result = service.start_profile(project, "dev")
+    try:
+        assert set(result.succeeded) == {"a", "b"}
+        assert result.failed == []
+        assert service.get_model_status(project, "a").running is True
+        assert service.get_model_status(project, "b").running is True
+    finally:
+        service.stop_profile(project, "dev", timeout=2.0)
+
+
+def test_start_profile_skips_already_running(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=18111))
+    write_model_yaml(project, "b", sleeper_payload("b", port=18112))
+    project = _set_profiles_lifecycle(project, {"dev": ["a", "b"]})
+    service.start_model(project, "a")
+    try:
+        result = service.start_profile(project, "dev")
+        assert "a" in {name for name, _ in result.skipped}
+        assert result.succeeded == ["b"]
+    finally:
+        service.stop_profile(project, "dev", timeout=2.0)
+
+
+def test_stop_profile_stops_running_members(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=18121))
+    write_model_yaml(project, "b", sleeper_payload("b", port=18122))
+    project = _set_profiles_lifecycle(project, {"dev": ["a", "b"]})
+    service.start_profile(project, "dev")
+    try:
+        result = service.stop_profile(project, "dev", timeout=2.0)
+        assert set(result.succeeded) == {"a", "b"}
+        assert service.get_model_status(project, "a").running is False
+        assert service.get_model_status(project, "b").running is False
+    finally:
+        for name in ("a", "b"):
+            try:
+                service.stop_model(project, name, timeout=1.0)
+            except ModelNotRunningError:
+                pass
+
+
+def test_restart_profile_starts_stopped_and_restarts_running(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=18131))
+    write_model_yaml(project, "b", sleeper_payload("b", port=18132))
+    project = _set_profiles_lifecycle(project, {"dev": ["a", "b"]})
+    service.start_model(project, "a")
+    try:
+        result = service.restart_profile(project, "dev", timeout=2.0)
+        assert set(result.succeeded) == {"a", "b"}
+        assert service.get_model_status(project, "a").running is True
+        assert service.get_model_status(project, "b").running is True
+    finally:
+        service.stop_profile(project, "dev", timeout=2.0)
+
+
+def test_start_profile_failure_does_not_block_others(project: Project) -> None:
+    """One model fails to start, others succeed."""
+    write_model_yaml(project, "good", sleeper_payload("good", port=18141))
+    write_model_yaml(project, "fail", fast_exit_payload("fail", port=18142))
+    project = _set_profiles_lifecycle(project, {"dev": ["good", "fail"]})
+    result = service.start_profile(project, "dev")
+    try:
+        assert "good" in result.succeeded
+        # `fail` exits immediately but spawn itself succeeds (it's a detached
+        # process). Whether it lands in succeeded or failed depends on timing.
+        # The important assertion is: 'good' isn't penalized.
+    finally:
+        service.stop_profile(project, "dev", timeout=2.0)

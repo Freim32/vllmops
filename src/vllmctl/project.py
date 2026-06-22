@@ -3,12 +3,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 PROJECT_DIR = ".vllmctl"
 PROJECT_CONFIG = "config.yaml"
 DEFAULT_PYTHON_VERSION = "3.10"
 NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+GENERAL_PROFILE = "general"
 
 ENV_EXAMPLE = """# HuggingFace authentication. Required for gated models (Llama, Gemma, ...).
 HF_TOKEN=
@@ -89,6 +90,37 @@ class ProjectConfig(BaseModel):
     )
     paths: ProjectPaths = Field(default_factory=ProjectPaths)
     defaults: ProjectDefaults = Field(default_factory=ProjectDefaults)
+    profiles: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description=(
+            "Named groupings of model names. Each model belongs to at most one"
+            " profile; unassigned models fall into the synthetic 'general'"
+            " catch-all rendered by the TUI."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_profiles(self) -> "ProjectConfig":
+        if GENERAL_PROFILE in self.profiles:
+            raise ValueError(
+                f"{GENERAL_PROFILE!r} is a reserved profile name (synthetic catch-all)"
+            )
+        seen: dict[str, str] = {}
+        for profile_name, models in self.profiles.items():
+            if not NAME_PATTERN.match(profile_name):
+                raise ValueError(
+                    f"invalid profile name: {profile_name!r}"
+                    f" (must match {NAME_PATTERN.pattern})"
+                )
+            for model_name in models:
+                if model_name in seen:
+                    raise ValueError(
+                        f"model {model_name!r} appears in both"
+                        f" {seen[model_name]!r} and {profile_name!r};"
+                        " each model can belong to at most one profile"
+                    )
+                seen[model_name] = profile_name
+        return self
 
 
 @dataclass(frozen=True)

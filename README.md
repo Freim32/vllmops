@@ -24,9 +24,10 @@
 
 - **One YAML per model.** Version-controlled with the rest of your project.
 - **Predictable lifecycle.** `start`, `stop`, `restart`, `status`, `health`, `logs`.
+- **Profile groups.** Group models, run lifecycle on all of them in parallel (Docker-Desktop style).
 - **Live metrics, no stack.** Direct `/metrics` scrape, ~30 min history per model.
 - **Per-project venv.** Activates the project's `.venv` automatically, no global `vllm` required.
-- **POSIX, type-checked, tested.** Linux/macOS, mypy strict, 150+ tests.
+- **POSIX, type-checked, tested.** Linux/macOS, mypy strict, 180+ tests.
 
 ## Install
 
@@ -85,6 +86,28 @@ vllm:
 
 `env` supports `${VAR}` interpolation from the shell, `.env`, and the project config (shell wins).
 
+## Profiles
+
+Group models for bulk lifecycle. Declare in `.vllmctl/config.yaml`:
+
+```yaml
+profiles:
+  dev: [qwen3, llama-small]
+  prod: [qwen3-prod]
+```
+
+Then run lifecycle commands on the whole group. Each member is processed in parallel; already-running members are skipped (idempotent), broken YAMLs don't block the rest, failures are reported per-model:
+
+```bash
+vllmctl start --profile dev      # parallel spawn + parallel /health wait
+vllmctl stop --profile dev
+vllmctl restart --profile dev
+vllmctl profile list             # all profiles with running/total counts
+vllmctl profile show dev         # members and their state
+```
+
+Models not declared in any profile fall into the synthetic `general` group. The TUI sidebar renders the same grouping; selecting a profile node makes `s`/`S`/`r` operate on every member.
+
 ## Commands
 
 | Command | Description |
@@ -92,13 +115,14 @@ vllm:
 | `vllmctl init [PATH]` | Initialize a project workspace |
 | `vllmctl create-model` | Scaffold a model YAML |
 | `vllmctl validate` | Validate all model YAMLs |
-| `vllmctl start <name> [--no-wait]` | Spawn detached, block on `/health` by default |
-| `vllmctl stop <name>` | SIGTERM, then SIGKILL after timeout |
-| `vllmctl restart <name>` | Stop, then start |
+| `vllmctl start <name> \| --profile <p>` | Spawn one model or every model in a profile |
+| `vllmctl stop <name> \| --profile <p>` | SIGTERM, then SIGKILL after timeout |
+| `vllmctl restart <name> \| --profile <p>` | Stop, then start |
 | `vllmctl status [<name>]` | Running / stale / stopped |
 | `vllmctl health <name>` | One-shot `/health` probe |
 | `vllmctl logs <name> [--tail N] [-f]` | Print or follow a model log |
 | `vllmctl command <name>` | Print the underlying vLLM command |
+| `vllmctl profile list \| show <p>` | Inspect profiles defined in config |
 | `vllmctl tui` | Launch the Textual TUI |
 
 Run `vllmctl <command> --help` for full options.

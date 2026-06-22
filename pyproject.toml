@@ -1,6 +1,6 @@
 [project]
 name = "vllmctl"
-version = "0.1.0"
+version = "0.2.0"
 description = "Declarative control plane and TUI for bare-metal vLLM servers."
 readme = "README.md"
 requires-python = ">=3.10"
