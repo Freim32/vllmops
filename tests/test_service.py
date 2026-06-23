@@ -328,6 +328,153 @@ def test_valid_model_keeps_metrics_port_even_when_sibling_yaml_is_broken(
     assert good.status.metrics_port == 18001
 
 
+# --- action availability predicates ---
+
+
+def _entry(
+    name: str,
+    *,
+    broken: bool = False,
+    running: bool = False,
+    metrics_port: int | None = 8001,
+    stale: bool = False,
+) -> service.CatalogEntry:
+    """Build a CatalogEntry directly without going through YAML loading."""
+    if broken:
+        return service.CatalogEntry(
+            name=name,
+            yaml_path=Path(f"{name}.yaml"),
+            status=None,
+            error="invalid",
+        )
+    status = service.ModelStatus(
+        name=name,
+        running=running,
+        pid=42 if running else None,
+        log_path=Path("log"),
+        pid_path=Path("pid"),
+        metrics_port=metrics_port,
+        stale_pid_file=stale,
+    )
+    return service.CatalogEntry(name=name, yaml_path=Path(f"{name}.yaml"), status=status)
+
+
+def test_can_start_rejects_broken() -> None:
+    assert service.can_start(_entry("a", broken=True)) is False
+
+
+def test_can_start_rejects_running() -> None:
+    assert service.can_start(_entry("a", running=True)) is False
+
+
+def test_can_start_accepts_stopped() -> None:
+    assert service.can_start(_entry("a", running=False)) is True
+
+
+def test_can_stop_accepts_running() -> None:
+    project = None  # not used for non-broken path
+    assert service.can_stop(project, _entry("a", running=True)) is True  # type: ignore[arg-type]
+
+
+def test_can_stop_rejects_stopped() -> None:
+    project = None
+    assert service.can_stop(project, _entry("a", running=False)) is False  # type: ignore[arg-type]
+
+
+def test_can_stop_broken_with_live_pid(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A broken entry whose PID file points to a live process is stoppable."""
+    write_model_yaml(project, "ok", sleeper_payload("ok", port=18001))
+    bad = project.models_dir / "broken.yaml"
+    bad.write_text("name: broken\nbogus_field: 1\n", encoding="utf-8")
+
+    paths = service.runtime_paths_for(project, "broken")
+    paths.pid_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.pid_path.write_text("12345", encoding="utf-8")
+
+    monkeypatch.setattr(service.lifecycle, "is_alive", lambda pid: pid == 12345)
+
+    broken_entry = next(
+        e for e in service.list_catalog_entries(project) if e.name == "broken"
+    )
+    assert broken_entry.is_broken
+    assert service.can_stop(project, broken_entry) is True
+
+
+def test_can_stop_broken_without_pid_file(project: Project) -> None:
+    """A broken entry with no PID file cannot be stopped."""
+    bad = project.models_dir / "broken.yaml"
+    bad.write_text("name: broken\nbogus_field: 1\n", encoding="utf-8")
+
+    broken_entry = next(
+        e for e in service.list_catalog_entries(project) if e.name == "broken"
+    )
+    assert service.can_stop(project, broken_entry) is False
+
+
+def test_can_stop_broken_with_dead_pid(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A broken entry with a stale PID file (process gone) cannot be stopped."""
+    bad = project.models_dir / "broken.yaml"
+    bad.write_text("name: broken\nbogus_field: 1\n", encoding="utf-8")
+
+    paths = service.runtime_paths_for(project, "broken")
+    paths.pid_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.pid_path.write_text("99999", encoding="utf-8")
+
+    monkeypatch.setattr(service.lifecycle, "is_alive", lambda pid: False)
+
+    broken_entry = next(
+        e for e in service.list_catalog_entries(project) if e.name == "broken"
+    )
+    assert service.can_stop(project, broken_entry) is False
+
+
+def test_can_restart_rejects_broken() -> None:
+    assert service.can_restart(_entry("a", broken=True)) is False
+
+
+def test_can_restart_accepts_running() -> None:
+    assert service.can_restart(_entry("a", running=True)) is True
+
+
+def test_can_restart_accepts_stopped() -> None:
+    assert service.can_restart(_entry("a", running=False)) is True
+
+
+def test_can_smoke_test_rejects_broken() -> None:
+    assert service.can_smoke_test(_entry("a", broken=True)) is False
+
+
+def test_can_smoke_test_rejects_stopped() -> None:
+    assert service.can_smoke_test(_entry("a", running=False)) is False
+
+
+def test_can_smoke_test_rejects_no_metrics_port() -> None:
+    assert service.can_smoke_test(_entry("a", running=True, metrics_port=None)) is False
+
+
+def test_can_smoke_test_accepts_running_with_port() -> None:
+    assert service.can_smoke_test(_entry("a", running=True, metrics_port=8001)) is True
+
+
+def test_can_copy_logs_rejects_when_log_missing(project: Project) -> None:
+    write_model_yaml(project, "x", sleeper_payload("x", port=18001))
+    entries = service.list_catalog_entries(project)
+    assert service.can_copy_logs(project, entries[0]) is False
+
+
+def test_can_copy_logs_accepts_when_log_exists(project: Project) -> None:
+    write_model_yaml(project, "x", sleeper_payload("x", port=18001))
+    paths = service.runtime_paths_for(project, "x")
+    paths.log_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.log_path.write_text("hello\n", encoding="utf-8")
+    entries = service.list_catalog_entries(project)
+    assert service.can_copy_logs(project, entries[0]) is True
+
+
 # --- list_profiles ---
 
 

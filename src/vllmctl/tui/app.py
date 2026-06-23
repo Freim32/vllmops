@@ -83,41 +83,63 @@ class VllmctlApp(App):
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
+        Binding("R", "refresh_now", "Refresh"),
         Binding("s", "start_model", "Start"),
         Binding("S", "stop_model", "Stop"),
         Binding("r", "restart_model", "Restart"),
-        Binding("R", "refresh_now", "Refresh"),
         Binding("e", "edit_model", "Edit YAML"),
-        Binding("c", "copy_logs", "Copy logs"),
         Binding("t", "smoke_test", "Smoke test"),
-        Binding("ctrl+t", "cycle_theme", "Theme"),
+        Binding("c", "copy_logs", "Copy logs"),
+        Binding("ctrl+t", "cycle_theme", "Theme", show=False),
     ]
 
     LOG_CLIPBOARD_LIMIT_BYTES = 1_000_000  # 1 MB cap so we don't blow up OSC 52
 
-    _MODEL_ONLY_ACTIONS = frozenset({"edit_model", "copy_logs"})
-    _MODEL_OR_PROFILE_ACTIONS = frozenset(
-        {"start_model", "stop_model", "restart_model"}
-    )
-
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         del parameters
+        if action == "start_model":
+            return self._any_target_entry(service.can_start)
+        if action == "stop_model":
+            return self._any_target_entry(
+                lambda e: service.can_stop(self._options.project, e)
+            )
+        if action == "restart_model":
+            return self._any_target_entry(service.can_restart)
         if action == "smoke_test":
-            name = self._models.selected_model_name
-            if name is None:
-                return False
-            entry = self._entry_for(name)
-            if entry is None or entry.is_broken:
-                return False
-            return entry.status is not None and entry.status.running
-        if action in self._MODEL_ONLY_ACTIONS:
+            # Smoke test runs on a single model, never on a whole profile.
+            entry = self._selected_model_entry()
+            return entry is not None and service.can_smoke_test(entry)
+        if action == "edit_model":
             return self._models.selected_model_name is not None
-        if action in self._MODEL_OR_PROFILE_ACTIONS:
-            return (
-                self._models.selected_model_name is not None
-                or self._models.selected_profile_name is not None
+        if action == "copy_logs":
+            entry = self._selected_model_entry()
+            return entry is not None and service.can_copy_logs(
+                self._options.project, entry
             )
         return True
+
+    def _any_target_entry(
+        self, predicate: Callable[[service.CatalogEntry], bool]
+    ) -> bool:
+        """True if at least one entry under the current selection passes the predicate."""
+        entries = self._target_entries()
+        return any(predicate(entry) for entry in entries)
+
+    def _selected_model_entry(self) -> service.CatalogEntry | None:
+        name = self._models.selected_model_name
+        return self._entry_for(name) if name is not None else None
+
+    def _target_entries(self) -> list[service.CatalogEntry]:
+        """Resolve the current selection to entries (1 if model, N if profile)."""
+        entry = self._selected_model_entry()
+        if entry is not None:
+            return [entry]
+        profile = self._models.selected_profile_name
+        if profile is not None:
+            for view in self._profile_views:
+                if view.name == profile:
+                    return list(view.entries)
+        return []
 
     def __init__(self, options: TuiOptions) -> None:
         super().__init__()
@@ -131,6 +153,7 @@ class VllmctlApp(App):
         self._last_attached_log: str | None = None
         self._histories: dict[str, MetricsHistory] = {}
         self._entries: list[service.CatalogEntry] = []
+        self._profile_views: list[service.ProfileView] = []
         self._gpu_snapshots: list[GpuSnapshot] = []
         self._gpu_indices: dict[str, list[int]] = {}
 
@@ -201,6 +224,7 @@ class VllmctlApp(App):
                 markup=False,
             )
             return
+        self._profile_views = views
         self._entries = [entry for view in views for entry in view.entries]
         self._refresh_gpu_indices()
         self._models.render_profiles(views)

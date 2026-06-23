@@ -451,6 +451,52 @@ def list_catalog_entries(
     return entries
 
 
+# --- action availability predicates (used by the TUI footer) ---
+
+
+def can_start(entry: CatalogEntry) -> bool:
+    """True if `start_model` would have a chance of succeeding for this entry."""
+    if entry.is_broken:
+        return False
+    if entry.status is None:
+        return False
+    return not entry.status.running
+
+
+def can_stop(project: Project, entry: CatalogEntry) -> bool:
+    """True if there is a live process to terminate.
+
+    For broken entries the YAML cannot be loaded, but stop is PID-based, so we
+    consult the PID file directly instead of trusting the catalog status.
+    """
+    if entry.is_broken:
+        paths = runtime_paths_for(project, entry.name)
+        pid = lifecycle.read_pid(paths.pid_path)
+        return pid is not None and lifecycle.is_alive(pid)
+    return entry.status is not None and entry.status.running
+
+
+def can_restart(entry: CatalogEntry) -> bool:
+    """True if `restart_model` would succeed.
+
+    Restart is stop-if-running plus start. The start step needs a valid YAML,
+    so broken entries are out. Otherwise any state is fine (running or stopped).
+    """
+    return not entry.is_broken
+
+
+def can_smoke_test(entry: CatalogEntry) -> bool:
+    """True if a `/v1/completions` probe could reach this model."""
+    if entry.is_broken or entry.status is None:
+        return False
+    return entry.status.running and entry.status.metrics_port is not None
+
+
+def can_copy_logs(project: Project, entry: CatalogEntry) -> bool:
+    """True if there is a log file on disk for this entry."""
+    return runtime_paths_for(project, entry.name).log_path.is_file()
+
+
 @dataclass(frozen=True)
 class ProfileView:
     """A profile resolved against the current catalog."""
