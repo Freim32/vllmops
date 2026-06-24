@@ -8,7 +8,7 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import RichLog, Static
 
-from vllmctl.tui.widgets.highlighter import highlight_log_line
+from vllmctl.tui.widgets.highlighter import VllmLogHighlighter, strip_process_prefix
 
 
 class LogViewer(Vertical):
@@ -41,7 +41,13 @@ class LogViewer(Vertical):
 
     def __init__(self, *, max_lines: int = 1000) -> None:
         super().__init__()
-        self._log = RichLog(highlight=False, markup=False, max_lines=max_lines, wrap=False)
+        self._log = RichLog(
+            highlight=True,
+            markup=False,
+            max_lines=max_lines,
+            wrap=True,
+        )
+        self._log.highlighter = VllmLogHighlighter()
         self._placeholder_body = Static("", id="log-placeholder-body")
         self._path: Path | None = None
         self._offset = 0
@@ -64,7 +70,7 @@ class LogViewer(Vertical):
             self._offset = path.stat().st_size
             tail = _read_last_bytes(path, max_bytes=8192)
             for line in tail.splitlines():
-                self._log.write(highlight_log_line(line))
+                self._log.write(strip_process_prefix(line))
             self._offset = path.stat().st_size
             self._show_log()
         elif path is None:
@@ -99,7 +105,7 @@ class LogViewer(Vertical):
             return
         text = chunk.decode("utf-8", errors="replace")
         for line in text.splitlines():
-            self._log.write(highlight_log_line(line))
+            self._log.write(strip_process_prefix(line))
         if not self._log.display:
             self._show_log()
 
