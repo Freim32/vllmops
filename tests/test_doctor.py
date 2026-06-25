@@ -77,7 +77,7 @@ def test_check_vllm_version_filters_log_prefixed_lines(project: Project, monkeyp
         stdout = "WARNING 06-22 18:01:55 Using 'pin_memory=False'.\n0.7.3\n"
         stderr = ""
 
-    def fake_run(*args: object, **kwargs: object) -> FakeCompleted:
+    def fake_run(*_args: object, **_kwargs: object) -> FakeCompleted:
         return FakeCompleted()
 
     monkeypatch.setattr("vllmctl.doctor.subprocess.run", fake_run)

@@ -948,7 +948,7 @@ def test_create_model_force_overwrites(project: Project) -> None:
     assert result.model.vllm.model == "hf/y"
 
 
-def test_fast_exit_payload_is_valid_yaml(project: Project, tmp_path: Path) -> None:
+def test_fast_exit_payload_is_valid_yaml(project: Project) -> None:
     """Sanity check that the helper produces a config the catalog will load."""
     write_model_yaml(project, "fail", fast_exit_payload("fail", port=18001))
     catalog = service.load_catalog_for(project)
