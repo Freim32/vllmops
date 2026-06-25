@@ -1,5 +1,7 @@
 import os
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import typer
@@ -16,6 +18,7 @@ from vllmctl.service import (
     ModelStartupTimeoutError,
     ModelStatus,
     UnknownModelError,
+    UnknownProfileError,
     VllmExecutableNotFoundError,
 )
 
@@ -161,12 +164,8 @@ def validate(
 ) -> None:
     """Validate model YAML files."""
     project = service.get_project()
-
-    try:
+    with _service_errors("Invalid configuration"):
         catalog = service.load_catalog_for(project, config_dir)
-    except Exception as exc:
-        console.print(f"[bold red]Invalid configuration:[/bold red] {exc}")
-        raise typer.Exit(code=1) from exc
 
     table = Table(title="vLLM model catalog")
     table.add_column("Name")
@@ -195,16 +194,8 @@ def command(
 ) -> None:
     """Print the bare-metal vLLM command for a configured model."""
     project = service.get_project()
-
-    try:
+    with _service_errors("Invalid configuration"):
         rendered = service.build_command_string(project, model_name, config_dir=config_dir)
-    except UnknownModelError as exc:
-        console.print(f"[bold red]Unknown model:[/bold red] {exc}")
-        raise typer.Exit(code=1) from exc
-    except Exception as exc:
-        console.print(f"[bold red]Invalid configuration:[/bold red] {exc}")
-        raise typer.Exit(code=1) from exc
-
     console.print(rendered)
 
 
@@ -241,15 +232,14 @@ def _require_one_target(
 ) -> None:
     """Enforce exactly one of model_name or --profile."""
     if model_name is None and profile is None:
-        console.print(
-            f"[bold red]Usage:[/bold red] vllmctl {command} <model_name> | --profile <name>"
+        raise typer.BadParameter(
+            f"missing target: pass a model name or --profile <name>"
+            f"  (usage: vllmctl {command} <model_name> | --profile <name>)"
         )
-        raise typer.Exit(code=2)
     if model_name is not None and profile is not None:
-        console.print(
-            "[bold red]Provide either a model name or --profile, not both[/bold red]"
+        raise typer.BadParameter(
+            "provide either a model name or --profile, not both"
         )
-        raise typer.Exit(code=2)
 
 
 def _wait_for_profile_in_parallel(
@@ -293,6 +283,37 @@ def _format_exc(exc: BaseException) -> str:
     return text[0] if text else exc.__class__.__name__
 
 
+@contextmanager
+def _service_errors(action: str) -> Iterator[None]:
+    """Map service-layer exceptions to a red `action` prefix and exit code 1.
+
+    `action` is the verb-phrase shown to the user (e.g. "Cannot start").
+    Specific exception classes get bespoke phrasing (e.g.
+    `ModelAlreadyRunningError` becomes a yellow "X is already running");
+    everything else falls through to `[bold red]<action>:[/bold red] <message>`.
+    """
+    try:
+        yield
+    except UnknownModelError as exc:
+        console.print(f"[bold red]Unknown model:[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+    except UnknownProfileError as exc:
+        console.print(f"[bold red]Unknown profile:[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+    except ModelAlreadyRunningError as exc:
+        console.print(f"[yellow]{exc} is already running[/yellow]")
+        raise typer.Exit(code=1) from exc
+    except ModelNotRunningError as exc:
+        console.print(f"[yellow]{exc} is not running[/yellow]")
+        raise typer.Exit(code=1) from exc
+    except VllmExecutableNotFoundError as exc:
+        console.print(f"[bold red]{action}:[/bold red]\n{exc}")
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:
+        console.print(f"[bold red]{action}:[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+
 def _print_log_tail(project: Project, model_name: str, lines: int = 30) -> None:
     tail = service.tail_log(project, model_name, lines=lines)
     if not tail:
@@ -327,12 +348,8 @@ def start(
     project = service.get_project()
 
     if profile is not None:
-        try:
+        with _service_errors("Cannot start"):
             result = service.start_profile(project, profile, config_dir=config_dir)
-        except service.UnknownProfileError as exc:
-            console.print(f"[bold red]Unknown profile:[/bold red] {profile}")
-            raise typer.Exit(code=1) from exc
-
         _print_bulk_result(result)
 
         if wait and result.succeeded:
@@ -353,23 +370,8 @@ def start(
         raise typer.Exit(code=1 if result.failed else 0)
 
     assert model_name is not None  # narrowed by _require_one_target
-    try:
+    with _service_errors("Cannot start"):
         status = service.start_model(project, model_name, config_dir=config_dir)
-    except ModelAlreadyRunningError as exc:
-        console.print(f"[yellow]{exc} is already running[/yellow]")
-        raise typer.Exit(code=1) from exc
-    except UnknownModelError as exc:
-        console.print(f"[bold red]Unknown model:[/bold red] {exc}")
-        raise typer.Exit(code=1) from exc
-    except VllmExecutableNotFoundError as exc:
-        console.print(f"[bold red]Cannot start:[/bold red]\n{exc}")
-        raise typer.Exit(code=1) from exc
-    except RuntimeError as exc:
-        console.print(f"[bold red]Cannot start:[/bold red] {exc}")
-        raise typer.Exit(code=1) from exc
-    except Exception as exc:
-        console.print(f"[bold red]Cannot start:[/bold red] {exc}")
-        raise typer.Exit(code=1) from exc
 
     dotenv_count = len(service.load_dotenv(project))
     console.print(f"[green]spawned[/green] {model_name} pid={status.pid}")
@@ -430,26 +432,16 @@ def stop(
     project = service.get_project()
 
     if profile is not None:
-        try:
+        with _service_errors("Cannot stop"):
             result = service.stop_profile(
                 project, profile, config_dir=config_dir, timeout=timeout
             )
-        except service.UnknownProfileError as exc:
-            console.print(f"[bold red]Unknown profile:[/bold red] {profile}")
-            raise typer.Exit(code=1) from exc
         _print_bulk_result(result)
         raise typer.Exit(code=1 if result.failed else 0)
 
     assert model_name is not None
-    try:
+    with _service_errors("Cannot stop"):
         service.stop_model(project, model_name, timeout=timeout)
-    except ModelNotRunningError as exc:
-        console.print(f"[yellow]{exc} is not running[/yellow]")
-        raise typer.Exit(code=1) from exc
-    except RuntimeError as exc:
-        console.print(f"[bold red]Cannot stop:[/bold red] {exc}")
-        raise typer.Exit(code=1) from exc
-
     console.print(f"[green]stopped[/green] {model_name}")
 
 
@@ -470,14 +462,10 @@ def restart(
     project = service.get_project()
 
     if profile is not None:
-        try:
+        with _service_errors("Cannot restart"):
             result = service.restart_profile(
                 project, profile, config_dir=config_dir, timeout=timeout
             )
-        except service.UnknownProfileError as exc:
-            console.print(f"[bold red]Unknown profile:[/bold red] {profile}")
-            raise typer.Exit(code=1) from exc
-
         _print_bulk_result(result)
 
         if wait and result.succeeded:
@@ -498,21 +486,8 @@ def restart(
         raise typer.Exit(code=1 if result.failed else 0)
 
     assert model_name is not None
-    try:
+    with _service_errors("Cannot restart"):
         status = service.restart_model(project, model_name, timeout=timeout, config_dir=config_dir)
-    except UnknownModelError as exc:
-        console.print(f"[bold red]Unknown model:[/bold red] {exc}")
-        raise typer.Exit(code=1) from exc
-    except VllmExecutableNotFoundError as exc:
-        console.print(f"[bold red]Cannot restart:[/bold red]\n{exc}")
-        raise typer.Exit(code=1) from exc
-    except RuntimeError as exc:
-        console.print(f"[bold red]Cannot restart:[/bold red] {exc}")
-        raise typer.Exit(code=1) from exc
-    except Exception as exc:
-        console.print(f"[bold red]Cannot restart:[/bold red] {exc}")
-        raise typer.Exit(code=1) from exc
-
     console.print(f"[green]respawned[/green] {model_name} pid={status.pid}")
 
     if not wait or status.metrics_port is None:
@@ -577,11 +552,8 @@ def status(
         _print_status(service.get_model_status(project, model_name, config_dir))
         return
 
-    try:
+    with _service_errors("Cannot read configs"):
         statuses = service.list_model_statuses(project, config_dir)
-    except Exception as exc:
-        console.print(f"[bold red]Cannot read configs:[/bold red] {exc}")
-        raise typer.Exit(code=1) from exc
 
     if not statuses:
         console.print("[yellow]no models configured[/yellow]")
