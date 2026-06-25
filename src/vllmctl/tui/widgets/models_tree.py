@@ -69,7 +69,9 @@ class ModelsTree(Tree[NodeData]):
         self.guide_depth = 3
         self._signature: Signature = ()
         self._profile_nodes: dict[str, TreeNode[NodeData]] = {}
-        self._model_nodes: dict[str, TreeNode[NodeData]] = {}
+        # A model can appear in more than one profile; track every leaf so
+        # label updates and cursor restores reach all instances.
+        self._model_nodes: dict[str, list[TreeNode[NodeData]]] = {}
 
     def on_mount(self) -> None:
         self.border_title = "Models"
@@ -89,14 +91,14 @@ class ModelsTree(Tree[NodeData]):
             if profile_node is not None:
                 profile_node.set_label(_profile_label(view))
             for entry in view.entries:
-                node = self._model_nodes.get(entry.name)
-                if node is not None:
+                for node in self._model_nodes.get(entry.name, ()):
                     node.set_label(_model_label(entry))
                     node.data = entry
 
     def _rebuild(self, views: list[ProfileView]) -> None:
         previous_model = self.selected_model_name
         previous_profile = self.selected_profile_name
+        previous_model_parent = self._selected_model_parent_profile()
 
         self.root.remove_children()
         self._profile_nodes.clear()
@@ -111,12 +113,34 @@ class ModelsTree(Tree[NodeData]):
             self._profile_nodes[view.name] = profile_node
             for entry in view.entries:
                 leaf = profile_node.add_leaf(_model_label(entry), data=entry)
-                self._model_nodes[entry.name] = leaf
+                self._model_nodes.setdefault(entry.name, []).append(leaf)
 
         if previous_model is not None and previous_model in self._model_nodes:
-            self.select_node(self._model_nodes[previous_model])
+            candidates = self._model_nodes[previous_model]
+            # Prefer the same profile the cursor was in so a model present in
+            # `dev` and `prod` doesn't jump groups on every refresh.
+            target = next(
+                (
+                    leaf
+                    for leaf in candidates
+                    if isinstance(leaf.parent, TreeNode)
+                    and isinstance(leaf.parent.data, ProfileNodeData)
+                    and leaf.parent.data.name == previous_model_parent
+                ),
+                candidates[0],
+            )
+            self.select_node(target)
         elif previous_profile is not None and previous_profile in self._profile_nodes:
             self.select_node(self._profile_nodes[previous_profile])
+
+    def _selected_model_parent_profile(self) -> str | None:
+        node = self.cursor_node
+        if node is None or not isinstance(node.data, CatalogEntry):
+            return None
+        parent = node.parent
+        if parent is None or not isinstance(parent.data, ProfileNodeData):
+            return None
+        return parent.data.name
 
     @property
     def selected_model_name(self) -> str | None:

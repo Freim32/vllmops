@@ -221,11 +221,12 @@ def test_profiles_reject_reserved_general_name(tmp_path: Path) -> None:
         load_project(tmp_path)
 
 
-def test_profiles_reject_duplicate_model_across_profiles(tmp_path: Path) -> None:
+def test_profiles_allow_same_model_in_multiple_profiles(tmp_path: Path) -> None:
+    """A model can be listed in two profiles; lifecycle is idempotent so it stays safe."""
     init_project(tmp_path)
     _rewrite_config_profiles(tmp_path, {"dev": ["a", "b"], "prod": ["b"]})
-    with pytest.raises(Exception, match="at most one profile"):
-        load_project(tmp_path)
+    project = load_project(tmp_path)
+    assert project.config.profiles == {"dev": ["a", "b"], "prod": ["b"]}
 
 
 def test_profiles_reject_invalid_profile_name(tmp_path: Path) -> None:

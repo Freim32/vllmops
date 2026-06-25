@@ -22,11 +22,6 @@ from vllmctl import metrics, service
 from vllmctl.gpu import GpuSnapshot
 from vllmctl.metrics import MetricsHistory, snapshot_from_history
 from vllmctl.project import Project
-from vllmctl.service import (
-    ModelAlreadyRunningError,
-    ModelNotRunningError,
-    UnknownModelError,
-)
 from vllmctl.tui.widgets import ErrorsPanel, GpuPanel, LogViewer, MetricsPanel, ModelsTree
 
 STATUS_REFRESH_SECONDS = 2.0
@@ -547,13 +542,12 @@ class VllmctlApp(App):
         self.run_worker(work_model(name, label), exclusive=True)
 
     async def _do_start(self, name: str, label: str) -> None:
+        # check_action filters `s` when the model is already running, broken,
+        # or missing, so domain exceptions cannot reach here; only the catch-all
+        # for unexpected failures (e.g. vllm binary missing) is needed.
         try:
             await asyncio.to_thread(service.start_model, self._options.project, name)
             self.notify(f"{label}: {name} spawned", severity="information", timeout=2)
-        except ModelAlreadyRunningError:
-            self.notify(f"{name} is already running", severity="warning", timeout=3)
-        except UnknownModelError:
-            self.notify(f"unknown model: {name}", severity="error", timeout=3)
         except Exception as exc:
             self.notify(f"start failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
@@ -564,8 +558,6 @@ class VllmctlApp(App):
         try:
             await asyncio.to_thread(service.stop_model, self._options.project, name, 30.0)
             self.notify(f"{label}: {name} stopped", severity="information", timeout=2)
-        except ModelNotRunningError:
-            self.notify(f"{name} is not running", severity="warning", timeout=3)
         except Exception as exc:
             self.notify(f"stop failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
@@ -577,8 +569,6 @@ class VllmctlApp(App):
         try:
             await asyncio.to_thread(service.restart_model, self._options.project, name)
             self.notify(f"{label}: {name} respawned", severity="information", timeout=2)
-        except UnknownModelError:
-            self.notify(f"unknown model: {name}", severity="error", timeout=3)
         except Exception as exc:
             self.notify(f"restart failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
@@ -591,8 +581,6 @@ class VllmctlApp(App):
         try:
             result = await asyncio.to_thread(service.start_profile, self._options.project, profile)
             self._notify_bulk(result)
-        except service.UnknownProfileError:
-            self.notify(f"unknown profile: {profile}", severity="error", timeout=3)
         except Exception as exc:
             self.notify(f"profile start failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
@@ -606,8 +594,6 @@ class VllmctlApp(App):
             self._notify_bulk(result)
             for name in result.succeeded:
                 self._histories.pop(name, None)
-        except service.UnknownProfileError:
-            self.notify(f"unknown profile: {profile}", severity="error", timeout=3)
         except Exception as exc:
             self.notify(f"profile stop failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
@@ -621,8 +607,6 @@ class VllmctlApp(App):
             self._notify_bulk(result)
             for name in result.succeeded:
                 self._histories.pop(name, None)
-        except service.UnknownProfileError:
-            self.notify(f"unknown profile: {profile}", severity="error", timeout=3)
         except Exception as exc:
             self.notify(f"profile restart failed: {exc}", severity="error", timeout=5, markup=False)
         finally:

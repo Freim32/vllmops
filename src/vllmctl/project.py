@@ -94,8 +94,8 @@ class ProjectConfig(BaseModel):
     profiles: dict[str, list[str]] = Field(
         default_factory=dict,
         description=(
-            "Named groupings of model names. Each model belongs to at most one"
-            " profile; unassigned models fall into the synthetic 'general'"
+            "Named groupings of model names. A model may appear in any number"
+            " of profiles; unassigned models fall into the synthetic 'general'"
             " catch-all rendered by the TUI."
         ),
     )
@@ -104,18 +104,9 @@ class ProjectConfig(BaseModel):
     def _validate_profiles(self) -> "ProjectConfig":
         if GENERAL_PROFILE in self.profiles:
             raise ValueError(f"{GENERAL_PROFILE!r} is a reserved profile name (synthetic catch-all)")
-        seen: dict[str, str] = {}
-        for profile_name, models in self.profiles.items():
+        for profile_name in self.profiles:
             if not NAME_PATTERN.match(profile_name):
                 raise ValueError(f"invalid profile name: {profile_name!r} (must match {NAME_PATTERN.pattern})")
-            for model_name in models:
-                if model_name in seen:
-                    raise ValueError(
-                        f"model {model_name!r} appears in both"
-                        f" {seen[model_name]!r} and {profile_name!r};"
-                        " each model can belong to at most one profile"
-                    )
-                seen[model_name] = profile_name
         return self
 
 

@@ -521,6 +521,18 @@ def test_list_profiles_no_profiles_puts_everything_in_general(project: Project) 
     assert {e.name for e in views[0].entries} == {"a", "b"}
 
 
+def test_list_profiles_shared_model_appears_in_each_profile(project: Project) -> None:
+    """A model listed in two profiles appears under BOTH and not in general."""
+    write_model_yaml(project, "shared", sleeper_payload("shared", port=18001))
+    write_model_yaml(project, "only_dev", sleeper_payload("only_dev", port=18002))
+    project = _set_profiles(project, {"dev": ["shared", "only_dev"], "prod": ["shared"]})
+    views = service.list_profiles(project)
+    by_name = {v.name: v for v in views}
+    assert {e.name for e in by_name["dev"].entries} == {"shared", "only_dev"}
+    assert {e.name for e in by_name["prod"].entries} == {"shared"}
+    assert by_name["general"].entries == []
+
+
 def test_list_profiles_unassigned_models_go_to_general(project: Project) -> None:
     write_model_yaml(project, "a", sleeper_payload("a", port=18001))
     write_model_yaml(project, "b", sleeper_payload("b", port=18002))
