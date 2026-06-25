@@ -582,12 +582,21 @@ def _short_error(exc: BaseException) -> str:
 def _run_in_parallel(
     items: list[CatalogEntry],
     work: Callable[[CatalogEntry], object],
-) -> tuple[list[str], list[tuple[str, str]]]:
-    """Run `work(entry)` on each item concurrently, collect succeeded vs failed."""
+    *,
+    skip_on: dict[type[BaseException], str] | None = None,
+) -> tuple[list[str], list[tuple[str, str]], list[tuple[str, str]]]:
+    """Run `work(entry)` on each item concurrently.
+
+    Returns `(succeeded, skipped, failed)`. Exceptions whose class is in
+    `skip_on` map the entry to skipped with the configured reason; other
+    exceptions go to failed with `_short_error(exc)` as the message.
+    """
     succeeded: list[str] = []
+    skipped: list[tuple[str, str]] = []
     failed: list[tuple[str, str]] = []
     if not items:
-        return succeeded, failed
+        return succeeded, skipped, failed
+    skip_on = skip_on or {}
     from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
 
     max_workers = min(len(items), 8)
@@ -598,8 +607,13 @@ def _run_in_parallel(
                 future.result()
                 succeeded.append(entry.name)
             except Exception as exc:
-                failed.append((entry.name, _short_error(exc)))
-    return succeeded, failed
+                for cls, reason in skip_on.items():
+                    if isinstance(exc, cls):
+                        skipped.append((entry.name, reason))
+                        break
+                else:
+                    failed.append((entry.name, _short_error(exc)))
+    return succeeded, skipped, failed
 
 
 def start_profile(
@@ -628,10 +642,11 @@ def start_profile(
             continue
         to_start.append(entry)
 
-    succeeded, failed = _run_in_parallel(
+    succeeded, work_skipped, failed = _run_in_parallel(
         to_start,
         lambda entry: start_model(project, entry.name, config_dir=config_dir),
     )
+    skipped.extend(work_skipped)
     return BulkResult(
         profile=profile_name,
         action="start",
@@ -668,26 +683,12 @@ def stop_profile(
             continue
         to_stop.append(entry)
 
-    succeeded: list[str] = []
-    failed: list[tuple[str, str]] = []
-    if to_stop:
-        from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
-
-        max_workers = min(len(to_stop), 8)
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {
-                pool.submit(stop_model, project, entry.name, timeout): entry
-                for entry in to_stop
-            }
-            for future, entry in futures.items():
-                try:
-                    future.result()
-                    succeeded.append(entry.name)
-                except ModelNotRunningError:
-                    skipped.append((entry.name, "not running"))
-                except Exception as exc:
-                    failed.append((entry.name, _short_error(exc)))
-
+    succeeded, work_skipped, failed = _run_in_parallel(
+        to_stop,
+        lambda entry: stop_model(project, entry.name, timeout),
+        skip_on={ModelNotRunningError: "not running"},
+    )
+    skipped.extend(work_skipped)
     return BulkResult(
         profile=profile_name,
         action="stop",
@@ -721,12 +722,13 @@ def restart_profile(
             continue
         to_restart.append(entry)
 
-    succeeded, failed = _run_in_parallel(
+    succeeded, work_skipped, failed = _run_in_parallel(
         to_restart,
         lambda entry: restart_model(
             project, entry.name, timeout=timeout, config_dir=config_dir
         ),
     )
+    skipped.extend(work_skipped)
     return BulkResult(
         profile=profile_name,
         action="restart",
