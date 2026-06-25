@@ -14,8 +14,15 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import fast_exit_payload, posix_only, sleeper_payload, write_model_yaml
+from tests.conftest import (
+    MockCompletionsHandler,
+    fast_exit_payload,
+    posix_only,
+    sleeper_payload,
+    write_model_yaml,
+)
 from vllmctl import service
+from vllmctl.config import ModelConfig, VllmConfig
 from vllmctl.project import Project
 from vllmctl.service import (
     ModelNotRunningError,
@@ -971,10 +978,10 @@ def test_fast_exit_payload_is_valid_yaml(project: Project, tmp_path: Path) -> No
 # --- smoke_test_model ---
 
 
-def _make_model_cfg(args: dict | None = None, extra: list[str] | None = None) -> object:
+def _make_model_cfg(
+    args: dict | None = None, extra: list[str] | None = None
+) -> ModelConfig:
     """Tiny ModelConfig builder for _resolve_served_name unit tests."""
-    from vllmctl.config import ModelConfig, VllmConfig  # noqa: PLC0415
-
     return ModelConfig(
         name="x",
         vllm=VllmConfig(
@@ -1011,7 +1018,6 @@ def test_resolve_served_name_extra_args_without_value_falls_back() -> None:
 
 
 @posix_only
-@posix_only
 def test_stop_model_raises_unknown_model_when_name_missing(project: Project) -> None:
     """A typo'd name surfaces as UnknownModelError, not the misleading 'not running'."""
     with pytest.raises(service.UnknownModelError):
@@ -1043,8 +1049,10 @@ def test_start_model_raises_port_conflict_when_other_running(
     a_paths = service.runtime_paths_for(project, "a")
     real_list = service.list_catalog_entries
 
-    def faked_list(*args: object, **kwargs: object) -> list[CatalogEntry]:
-        entries = real_list(*args, **kwargs)
+    def faked_list(
+        proj: Project, config_dir: Path | None = None
+    ) -> list[CatalogEntry]:
+        entries = real_list(proj, config_dir)
         patched: list[CatalogEntry] = []
         for entry in entries:
             if entry.name == "a" and entry.status is not None:
@@ -1091,7 +1099,10 @@ def test_smoke_test_raises_when_model_not_running(project: Project) -> None:
 
 
 @posix_only
-def test_smoke_test_returns_response_on_success(project: Project, mock_completions) -> None:
+def test_smoke_test_returns_response_on_success(
+    project: Project,
+    mock_completions: tuple[int, type[MockCompletionsHandler]],
+) -> None:
     """End-to-end: spawn a sleeper, point the mock /v1/completions at its port,
     smoke test parses the response."""
     port, handler_class = mock_completions
@@ -1116,7 +1127,10 @@ def test_smoke_test_returns_response_on_success(project: Project, mock_completio
 
 
 @posix_only
-def test_smoke_test_reports_http_error(project: Project, mock_completions) -> None:
+def test_smoke_test_reports_http_error(
+    project: Project,
+    mock_completions: tuple[int, type[MockCompletionsHandler]],
+) -> None:
     port, handler_class = mock_completions
     handler_class.response_status = 400
     handler_class.response_body = json.dumps(
@@ -1136,7 +1150,10 @@ def test_smoke_test_reports_http_error(project: Project, mock_completions) -> No
 
 
 @posix_only
-def test_smoke_test_reports_malformed_response(project: Project, mock_completions) -> None:
+def test_smoke_test_reports_malformed_response(
+    project: Project,
+    mock_completions: tuple[int, type[MockCompletionsHandler]],
+) -> None:
     port, handler_class = mock_completions
     handler_class.response_status = 200
     handler_class.response_body = b"not json at all"

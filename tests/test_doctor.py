@@ -1,4 +1,4 @@
-"""Tests for vllmctl.doctor — environment diagnostic checks."""
+"""Tests for vllmctl.doctor environment diagnostic checks."""
 
 from __future__ import annotations
 

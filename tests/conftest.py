@@ -81,7 +81,7 @@ class _SilentHandler(BaseHTTPRequestHandler):
 
 
 @pytest.fixture
-def mock_health_server() -> Iterator[tuple[int, _SilentHandler]]:
+def mock_health_server() -> Iterator[tuple[int, type[_SilentHandler]]]:
     """A tiny HTTP server bound to a random port that returns 200 on any GET."""
     server = HTTPServer(("127.0.0.1", 0), _SilentHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

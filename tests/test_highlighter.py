@@ -59,7 +59,7 @@ def test_highlight_log_line_styles_error_keyword() -> None:
     assert (0, 5, "bold red") in spans
 
 
-def _spans(line: str) -> list[tuple[int, int, str]]:
+def _spans(line: str) -> list[tuple[int, int, object]]:
     text = highlight_log_line(line)
     return [(s.start, s.end, s.style) for s in text.spans]
 
