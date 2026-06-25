@@ -199,10 +199,14 @@ def _print_status(status: ModelStatus) -> None:
     console.print(f"{status.name}: {state} pid={pid_display} metrics={metrics_display}{stale}")
 
 
+_ACTION_PAST = {"start": "started", "stop": "stopped", "restart": "restarted"}
+
+
 def _print_bulk_result(result: service.BulkResult) -> None:
+    past = _ACTION_PAST.get(result.action, f"{result.action}ed")
     summary_parts: list[str] = []
     if result.succeeded:
-        summary_parts.append(f"[green]{len(result.succeeded)} {result.action}ed[/green]")
+        summary_parts.append(f"[green]{len(result.succeeded)} {past}[/green]")
     if result.skipped:
         summary_parts.append(f"[yellow]{len(result.skipped)} skipped[/yellow]")
     if result.failed:
@@ -221,8 +225,8 @@ def _require_one_target(model_name: str | None, profile: str | None, command: st
     """Enforce exactly one of model_name or --profile."""
     if model_name is None and profile is None:
         raise typer.BadParameter(
-            f"missing target: pass a model name or --profile <name>"
-            f"  (usage: vllmctl {command} <model_name> | --profile <name>)"
+            f"missing target: pass a model name or --profile <name> "
+            f"(usage: vllmctl {command} <model_name> | --profile <name>)"
         )
     if model_name is not None and profile is not None:
         raise typer.BadParameter("provide either a model name or --profile, not both")
