@@ -823,6 +823,16 @@ def stop_model(
     config_dir: Path | None = None,
 ) -> ModelStatus:
     lifecycle.ensure_supported_platform()
+
+    # Catalog membership check uses the lenient lister so a broken YAML still
+    # counts as "model exists" (stop is PID-based; the user can terminate a
+    # process whose config was edited to an invalid state at runtime).
+    if not any(
+        entry.name == model_name
+        for entry in list_catalog_entries(project, config_dir)
+    ):
+        raise UnknownModelError(model_name)
+
     paths = runtime_paths_for(project, model_name)
     pid = lifecycle.read_pid(paths.pid_path)
 

@@ -983,6 +983,25 @@ def test_resolve_served_name_extra_args_without_value_falls_back() -> None:
 
 
 @posix_only
+@posix_only
+def test_stop_model_raises_unknown_model_when_name_missing(project: Project) -> None:
+    """A typo'd name surfaces as UnknownModelError, not the misleading 'not running'."""
+    with pytest.raises(service.UnknownModelError):
+        service.stop_model(project, "does-not-exist")
+
+
+@posix_only
+def test_stop_model_tolerates_broken_yaml(project: Project) -> None:
+    """A model whose YAML is broken at stop time is still nameable for PID-based stop."""
+    bad = project.models_dir / "qwen3.yaml"
+    bad.write_text("name: qwen3\nbogus_field: 1\n", encoding="utf-8")
+    # YAML is broken but the name `qwen3` resolves via filename stem; no PID exists,
+    # so we get ModelNotRunningError rather than UnknownModelError.
+    with pytest.raises(service.ModelNotRunningError):
+        service.stop_model(project, "qwen3")
+
+
+@posix_only
 def test_start_model_raises_port_conflict_when_other_running(
     project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
