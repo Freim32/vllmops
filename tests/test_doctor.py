@@ -151,22 +151,15 @@ def test_check_port_conflicts_no_conflicts(project: Project) -> None:
     assert result.status == "ok"
 
 
-def test_check_port_conflicts_detects_duplicates(project: Project) -> None:
-    """Two YAMLs with same metrics port — second loaded becomes broken, so this
-    actually shows the broken-detection path. But list_catalog_entries dedupes
-    ports before they can collide in by_port. So this asserts the "no conflict"
-    is reported because the duplicate is flagged elsewhere (in Catalog check)."""
+def test_check_port_conflicts_warns_on_duplicates(project: Project) -> None:
+    """Duplicate ports across configs are now allowed; doctor surfaces them as
+    a warning since runtime guarantees only one model binds at a time."""
     write_model_yaml(project, "a", sleeper_payload("a", port=18001))
     write_model_yaml(project, "b", sleeper_payload("b", port=18001))
-    # Both go through list_catalog_entries which flags the second as broken
-    # (duplicate port). The port_conflicts check only looks at non-broken
-    # entries, so it sees only one model with port 18001 -> no conflict.
     result = doctor.check_port_conflicts(project)
-    assert result.status == "ok"
-    # But Catalog check should warn:
-    cat = doctor.check_catalog(project)
-    assert cat.status == "warn"
-    assert "broken" in cat.detail
+    assert result.status == "warn"
+    assert "18001" in result.detail
+    assert "a" in result.detail and "b" in result.detail
 
 
 def test_check_runtime_writable_warns_when_missing(project: Project) -> None:

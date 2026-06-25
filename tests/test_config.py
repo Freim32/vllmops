@@ -143,11 +143,13 @@ def test_catalog_rejects_duplicate_names() -> None:
         Catalog(models=[a, b])
 
 
-def test_catalog_rejects_duplicate_metrics_ports() -> None:
+def test_catalog_allows_duplicate_metrics_ports() -> None:
+    """Two models can share a metrics_port at config time. Conflict is enforced
+    at runtime when both try to bind (see `start_model` + `PortConflictError`)."""
     a = ModelConfig.model_validate(_valid_model("a", port=8001))
     b = ModelConfig.model_validate(_valid_model("b", port=8001))
-    with pytest.raises(ValidationError, match="duplicate metrics port"):
-        Catalog(models=[a, b])
+    catalog = Catalog(models=[a, b])
+    assert len(catalog.models) == 2
 
 
 def test_catalog_get_returns_model_or_none() -> None:

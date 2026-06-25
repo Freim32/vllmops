@@ -117,21 +117,10 @@ class Catalog(BaseModel):
     @model_validator(mode="after")
     def validate_unique_fields(self) -> "Catalog":
         names: set[str] = set()
-        ports: set[int] = set()
-        errors: list[str] = []
-
         for model in self.models:
             if model.name in names:
-                errors.append(f"duplicate model name: {model.name}")
+                raise ValueError(f"duplicate model name: {model.name}")
             names.add(model.name)
-
-            if model.metrics_port is not None:
-                if model.metrics_port in ports:
-                    errors.append(f"duplicate metrics port: {model.metrics_port}")
-                ports.add(model.metrics_port)
-
-        if errors:
-            raise ValueError("; ".join(errors))
         return self
 
     def get(self, model_name: str) -> ModelConfig | None:

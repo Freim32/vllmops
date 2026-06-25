@@ -59,6 +59,10 @@ class VllmExecutableNotFoundError(RuntimeError):
     """Raised when the vllm binary cannot be found in the project venv or on PATH."""
 
 
+class PortConflictError(RuntimeError):
+    """Raised when starting a model whose metrics_port is already taken by another running model."""
+
+
 @dataclass(frozen=True)
 class CreateModelResult:
     destination: Path
@@ -408,7 +412,6 @@ def list_catalog_entries(
     files = sorted(effective_dir.glob("*.yaml")) + sorted(effective_dir.glob("*.yml"))
     entries: list[CatalogEntry] = []
     seen_names: dict[str, Path] = {}
-    seen_ports: dict[int, Path] = {}
 
     for path in files:
         try:
@@ -428,22 +431,8 @@ def list_catalog_entries(
                 )
             )
             continue
-        if model.metrics_port is not None and model.metrics_port in seen_ports:
-            entries.append(
-                CatalogEntry(
-                    name=model.name,
-                    yaml_path=path,
-                    error=(
-                        f"duplicate metrics port {model.metrics_port}"
-                        f" (also used by {seen_ports[model.metrics_port].name})"
-                    ),
-                )
-            )
-            continue
 
         seen_names[model.name] = path
-        if model.metrics_port is not None:
-            seen_ports[model.metrics_port] = path
 
         status = _build_model_status(project, model.name, model.metrics_port)
         entries.append(CatalogEntry(name=model.name, yaml_path=path, status=status))
@@ -793,6 +782,19 @@ def start_model(
     status = get_model_status(project, model_name, config_dir)
     if status.running:
         raise ModelAlreadyRunningError(model_name)
+
+    if status.metrics_port is not None:
+        for other in list_catalog_entries(project, config_dir):
+            if other.name == model_name:
+                continue
+            other_status = other.status
+            if other_status is None or not other_status.running:
+                continue
+            if other_status.metrics_port == status.metrics_port:
+                raise PortConflictError(
+                    f"port {status.metrics_port} is already in use by"
+                    f" running model {other.name!r}"
+                )
 
     args, model_env = build_command_args(project, model_name, config_dir)
     check_vllm_available(project, args[0])

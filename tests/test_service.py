@@ -283,13 +283,13 @@ def test_list_catalog_entries_flags_duplicate_name(project: Project) -> None:
     assert "duplicate model name" in (broken[0].error or "")
 
 
-def test_list_catalog_entries_flags_duplicate_port(project: Project) -> None:
+def test_list_catalog_entries_allows_duplicate_port(project: Project) -> None:
+    """Duplicate ports are now allowed at config time; conflict is a runtime concern."""
     write_model_yaml(project, "a", sleeper_payload("a", port=18001))
-    write_model_yaml(project, "b", sleeper_payload("b", port=18001))  # same port
+    write_model_yaml(project, "b", sleeper_payload("b", port=18001))
     entries = service.list_catalog_entries(project)
-    broken = [e for e in entries if e.is_broken]
-    assert len(broken) == 1
-    assert "duplicate metrics port" in (broken[0].error or "")
+    assert {e.name for e in entries} == {"a", "b"}
+    assert all(not e.is_broken for e in entries)
 
 
 def test_list_catalog_entries_empty_when_dir_missing(project: Project) -> None:
@@ -980,6 +980,49 @@ def test_resolve_served_name_honors_extra_args() -> None:
 def test_resolve_served_name_extra_args_without_value_falls_back() -> None:
     cfg = _make_model_cfg(extra=["--served-model-name"])
     assert service._resolve_served_name(cfg) == "hf/foo"
+
+
+@posix_only
+def test_start_model_raises_port_conflict_when_other_running(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If model B claims the same port as already-running model A, start fails."""
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    write_model_yaml(project, "b", sleeper_payload("b", port=18001))
+
+    # Mark `a` as running by faking its catalog entry status.
+    from vllmctl.service import CatalogEntry, ModelStatus  # noqa: PLC0415
+
+    a_paths = service.runtime_paths_for(project, "a")
+    real_list = service.list_catalog_entries
+
+    def faked_list(*args: object, **kwargs: object) -> list[CatalogEntry]:
+        entries = real_list(*args, **kwargs)
+        patched: list[CatalogEntry] = []
+        for entry in entries:
+            if entry.name == "a" and entry.status is not None:
+                patched.append(
+                    CatalogEntry(
+                        name=entry.name,
+                        yaml_path=entry.yaml_path,
+                        status=ModelStatus(
+                            name="a",
+                            running=True,
+                            pid=99999,
+                            log_path=a_paths.log_path,
+                            pid_path=a_paths.pid_path,
+                            metrics_port=18001,
+                            stale_pid_file=False,
+                        ),
+                    )
+                )
+            else:
+                patched.append(entry)
+        return patched
+
+    monkeypatch.setattr(service, "list_catalog_entries", faked_list)
+    with pytest.raises(service.PortConflictError, match="18001"):
+        service.start_model(project, "b")
 
 
 def test_smoke_test_raises_for_unknown_model(project: Project) -> None:

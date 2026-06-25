@@ -222,9 +222,9 @@ def check_port_conflicts(project: Project) -> CheckResult:
         )
         return CheckResult(
             "Port conflicts",
-            "fail",
+            "warn",
             items,
-            hint="give each model a unique metrics_port",
+            hint="only an issue if those models run concurrently",
         )
     return CheckResult("Port conflicts", "ok", "no duplicates")
 
