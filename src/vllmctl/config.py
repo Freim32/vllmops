@@ -4,6 +4,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from vllmctl.project import NAME_PATTERN_STR
+
 SECRET_ENV_KEYS = {"HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"}
 
 
@@ -70,7 +72,7 @@ class ModelConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+    name: str = Field(pattern=NAME_PATTERN_STR)
     env: dict[str, str] = Field(default_factory=dict)
     vllm: VllmConfig
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)

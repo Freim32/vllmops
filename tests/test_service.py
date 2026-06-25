@@ -484,6 +484,34 @@ def test_can_copy_logs_accepts_when_log_has_content(project: Project) -> None:
     assert service.can_copy_logs(project, entries[0]) is True
 
 
+# --- next_available_port ---
+
+
+def test_next_available_port_starts_at_port_start_when_empty(project: Project) -> None:
+    assert service.next_available_port(project) == 8001
+
+
+def test_next_available_port_skips_used(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=8001))
+    write_model_yaml(project, "b", sleeper_payload("b", port=8002))
+    assert service.next_available_port(project) == 8003
+
+
+def test_next_available_port_tolerates_broken_sibling(project: Project) -> None:
+    """A broken YAML must not block port lookup."""
+    write_model_yaml(project, "a", sleeper_payload("a", port=8001))
+    bad = project.models_dir / "broken.yaml"
+    bad.write_text("name: broken\nbogus_field: 1\n", encoding="utf-8")
+    assert service.next_available_port(project) == 8002
+
+
+def test_next_available_port_tolerates_duplicate_port(project: Project) -> None:
+    """Two siblings sharing a port (now allowed) shouldn't crash port lookup."""
+    write_model_yaml(project, "a", sleeper_payload("a", port=8002))
+    write_model_yaml(project, "b", sleeper_payload("b", port=8002))
+    assert service.next_available_port(project) == 8001
+
+
 # --- list_profiles ---
 
 

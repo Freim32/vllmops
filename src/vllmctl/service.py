@@ -207,8 +207,20 @@ def load_catalog_or_empty_for(project: Project, config_dir: Path | None = None) 
 
 
 def next_available_port(project: Project, config_dir: Path | None = None) -> int:
-    catalog = load_catalog_or_empty_for(project, config_dir)
-    return catalog.next_available_port(project.config.defaults.port_start)
+    """First port at or above `defaults.port_start` not already used by a valid model.
+
+    Uses the lenient entry listing so a broken sibling YAML doesn't prevent
+    picking a new port for `vllmctl create-model`.
+    """
+    used = {
+        entry.status.metrics_port
+        for entry in list_catalog_entries(project, config_dir)
+        if entry.status is not None and entry.status.metrics_port is not None
+    }
+    port = project.config.defaults.port_start
+    while port in used:
+        port += 1
+    return port
 
 
 def create_model(
@@ -803,8 +815,7 @@ def start_model(
     runtime_env = build_runtime_env(project, model_env)
     paths = runtime_paths_for(project, model_name)
 
-    if paths.pid_path.exists():
-        paths.pid_path.unlink()
+    paths.pid_path.unlink(missing_ok=True)
 
     pid = lifecycle.spawn_detached(args, runtime_env, paths.log_path, paths.pid_path)
     return ModelStatus(
@@ -839,13 +850,11 @@ def stop_model(
     pid = lifecycle.read_pid(paths.pid_path)
 
     if pid is None or not lifecycle.is_alive(pid):
-        if paths.pid_path.exists():
-            paths.pid_path.unlink()
+        paths.pid_path.unlink(missing_ok=True)
         raise ModelNotRunningError(model_name)
 
     lifecycle.terminate(pid, timeout=timeout)
-    if paths.pid_path.exists():
-        paths.pid_path.unlink()
+    paths.pid_path.unlink(missing_ok=True)
 
     return get_model_status(project, model_name, config_dir)
 
@@ -862,8 +871,7 @@ def restart_model(
 
     if pid is not None and lifecycle.is_alive(pid):
         lifecycle.terminate(pid, timeout=timeout)
-    if paths.pid_path.exists():
-        paths.pid_path.unlink()
+    paths.pid_path.unlink(missing_ok=True)
 
     return start_model(project, model_name, config_dir)
 
@@ -1094,7 +1102,10 @@ def tail_log(project: Project, model_name: str, lines: int = 30) -> list[str]:
             handle.seek(0, os.SEEK_END)
             size = handle.tell()
             data = b""
-            while size > 0 and data.count(b"\n") <= lines:
+            # `<` (not `<=`) because a trailing newline at EOF doesn't add a
+            # visible line; the final `splitlines()[-lines:]` then yields
+            # exactly `lines` items when the file is long enough.
+            while size > 0 and data.count(b"\n") < lines:
                 read = min(block, size)
                 size -= read
                 handle.seek(size)

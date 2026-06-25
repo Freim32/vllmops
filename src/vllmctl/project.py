@@ -8,7 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 PROJECT_DIR = ".vllmctl"
 PROJECT_CONFIG = "config.yaml"
 DEFAULT_PYTHON_VERSION = "3.10"
-NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+NAME_PATTERN_STR = r"^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+NAME_PATTERN = re.compile(NAME_PATTERN_STR)
 GENERAL_PROFILE = "general"
 
 ENV_EXAMPLE = """# HuggingFace authentication. Required for gated models (Llama, Gemma, ...).
@@ -85,7 +86,7 @@ class ProjectConfig(BaseModel):
     version: int = 1
     name: str | None = Field(
         default=None,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+        pattern=NAME_PATTERN_STR,
         description="Display name for the project. Falls back to folder name if absent.",
     )
     paths: ProjectPaths = Field(default_factory=ProjectPaths)
