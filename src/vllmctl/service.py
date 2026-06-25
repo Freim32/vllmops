@@ -429,9 +429,7 @@ def list_catalog_entries(
         try:
             model = load_model_file(path)
         except Exception as exc:
-            entries.append(
-                CatalogEntry(name=path.stem, yaml_path=path, error=_short_yaml_error(exc))
-            )
+            entries.append(CatalogEntry(name=path.stem, yaml_path=path, error=_short_yaml_error(exc)))
             continue
 
         if model.name in seen_names:
@@ -736,9 +734,7 @@ def restart_profile(
 
     succeeded, work_skipped, failed = _run_in_parallel(
         to_restart,
-        lambda entry: restart_model(
-            project, entry.name, timeout=timeout, config_dir=config_dir
-        ),
+        lambda entry: restart_model(project, entry.name, timeout=timeout, config_dir=config_dir),
     )
     skipped.extend(work_skipped)
     return BulkResult(
@@ -805,10 +801,7 @@ def start_model(
             if other_status is None or not other_status.running:
                 continue
             if other_status.metrics_port == status.metrics_port:
-                raise PortConflictError(
-                    f"port {status.metrics_port} is already in use by"
-                    f" running model {other.name!r}"
-                )
+                raise PortConflictError(f"port {status.metrics_port} is already in use by running model {other.name!r}")
 
     args, model_env = build_command_args(project, model_name, config_dir)
     check_vllm_available(project, args[0])
@@ -840,10 +833,7 @@ def stop_model(
     # Catalog membership check uses the lenient lister so a broken YAML still
     # counts as "model exists" (stop is PID-based; the user can terminate a
     # process whose config was edited to an invalid state at runtime).
-    if not any(
-        entry.name == model_name
-        for entry in list_catalog_entries(project, config_dir)
-    ):
+    if not any(entry.name == model_name for entry in list_catalog_entries(project, config_dir)):
         raise UnknownModelError(model_name)
 
     paths = runtime_paths_for(project, model_name)
@@ -1072,17 +1062,13 @@ def wait_for_ready(
 
     while True:
         if not lifecycle.is_alive(pid):
-            raise ModelStartupFailedError(
-                f"{model_name} process (pid {pid}) exited before /health responded"
-            )
+            raise ModelStartupFailedError(f"{model_name} process (pid {pid}) exited before /health responded")
 
         if probe_health(url):
             return get_model_status(project, model_name, config_dir)
 
         if time.monotonic() >= deadline:
-            raise ModelStartupTimeoutError(
-                f"{model_name} did not respond on /health within {timeout:.0f}s"
-            )
+            raise ModelStartupTimeoutError(f"{model_name} did not respond on /health within {timeout:.0f}s")
 
         if on_progress is not None:
             on_progress(time.monotonic() - started)

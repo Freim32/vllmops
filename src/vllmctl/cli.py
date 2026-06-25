@@ -86,9 +86,7 @@ def init(
         raise typer.Exit(code=1) from exc
 
     project = service.get_project(path)
-    console.print(
-        f"[bold green]Initialized vllmctl project[/bold green] {project.name} at {project.root}"
-    )
+    console.print(f"[bold green]Initialized vllmctl project[/bold green] {project.name} at {project.root}")
     for file in written:
         console.print(f"[green]wrote[/green] {file}")
     console.print("\n[dim]Next steps:[/dim]")
@@ -117,15 +115,9 @@ def create_model(
         raise typer.Exit(code=1) from exc
 
     resolved_name: str = name if name is not None else typer.prompt("Mnemonic name")
-    resolved_hf_model: str = (
-        hf_model if hf_model is not None else typer.prompt("HuggingFace model or local path")
-    )
-    resolved_gpus: str = (
-        gpus if gpus is not None else typer.prompt("GPUs to use (CUDA_VISIBLE_DEVICES)", default="0")
-    )
-    resolved_port: int = (
-        port if port is not None else typer.prompt("vLLM port", default=default_port, type=int)
-    )
+    resolved_hf_model: str = hf_model if hf_model is not None else typer.prompt("HuggingFace model or local path")
+    resolved_gpus: str = gpus if gpus is not None else typer.prompt("GPUs to use (CUDA_VISIBLE_DEVICES)", default="0")
+    resolved_port: int = port if port is not None else typer.prompt("vLLM port", default=default_port, type=int)
 
     effective_dir = service.resolve_models_dir(project, config_dir)
     destination = effective_dir / f"{resolved_name}.yaml"
@@ -202,9 +194,7 @@ def command(
 def _print_status(status: ModelStatus) -> None:
     state = "[bold green]running[/bold green]" if status.running else "[red]stopped[/red]"
     pid_display = str(status.pid) if status.pid is not None else "-"
-    metrics_display = (
-        f"http://localhost:{status.metrics_port}/metrics" if status.metrics_port else "-"
-    )
+    metrics_display = f"http://localhost:{status.metrics_port}/metrics" if status.metrics_port else "-"
     stale = " [yellow](stale pid file)[/yellow]" if status.stale_pid_file else ""
     console.print(f"{status.name}: {state} pid={pid_display} metrics={metrics_display}{stale}")
 
@@ -227,9 +217,7 @@ def _print_bulk_result(result: service.BulkResult) -> None:
         console.print(f"  [red]fail[/red] {name} [dim]{error}[/dim]")
 
 
-def _require_one_target(
-    model_name: str | None, profile: str | None, command: str
-) -> None:
+def _require_one_target(model_name: str | None, profile: str | None, command: str) -> None:
     """Enforce exactly one of model_name or --profile."""
     if model_name is None and profile is None:
         raise typer.BadParameter(
@@ -237,9 +225,7 @@ def _require_one_target(
             f"  (usage: vllmctl {command} <model_name> | --profile <name>)"
         )
     if model_name is not None and profile is not None:
-        raise typer.BadParameter(
-            "provide either a model name or --profile, not both"
-        )
+        raise typer.BadParameter("provide either a model name or --profile, not both")
 
 
 def _wait_for_profile_in_parallel(
@@ -327,9 +313,7 @@ def _print_log_tail(project: Project, model_name: str, lines: int = 30) -> None:
 @app.command()
 def start(
     model_name: str | None = typer.Argument(None, help="Configured model name."),
-    profile: str | None = typer.Option(
-        None, "--profile", "-P", help="Start every model in this profile in parallel."
-    ),
+    profile: str | None = typer.Option(None, "--profile", "-P", help="Start every model in this profile in parallel."),
     config_dir: Path | None = typer.Option(None, "--config-dir", "-c", help="Models directory."),
     wait: bool = typer.Option(
         True,
@@ -353,10 +337,7 @@ def start(
         _print_bulk_result(result)
 
         if wait and result.succeeded:
-            console.print(
-                f"[dim]waiting on /health for {len(result.succeeded)}"
-                f" model(s) in parallel...[/dim]"
-            )
+            console.print(f"[dim]waiting on /health for {len(result.succeeded)} model(s) in parallel...[/dim]")
             ready_names, wait_failed = _wait_for_profile_in_parallel(
                 project, result.succeeded, wait_timeout, config_dir, health_host
             )
@@ -421,9 +402,7 @@ def start(
 @app.command()
 def stop(
     model_name: str | None = typer.Argument(None, help="Configured model name."),
-    profile: str | None = typer.Option(
-        None, "--profile", "-P", help="Stop every running model in this profile."
-    ),
+    profile: str | None = typer.Option(None, "--profile", "-P", help="Stop every running model in this profile."),
     config_dir: Path | None = typer.Option(None, "--config-dir", "-c", help="Models directory."),
     timeout: float = typer.Option(30.0, "--timeout", "-t", help="Seconds before SIGKILL."),
 ) -> None:
@@ -433,9 +412,7 @@ def stop(
 
     if profile is not None:
         with _service_errors("Cannot stop"):
-            result = service.stop_profile(
-                project, profile, config_dir=config_dir, timeout=timeout
-            )
+            result = service.stop_profile(project, profile, config_dir=config_dir, timeout=timeout)
         _print_bulk_result(result)
         raise typer.Exit(code=1 if result.failed else 0)
 
@@ -463,16 +440,11 @@ def restart(
 
     if profile is not None:
         with _service_errors("Cannot restart"):
-            result = service.restart_profile(
-                project, profile, config_dir=config_dir, timeout=timeout
-            )
+            result = service.restart_profile(project, profile, config_dir=config_dir, timeout=timeout)
         _print_bulk_result(result)
 
         if wait and result.succeeded:
-            console.print(
-                f"[dim]waiting on /health for {len(result.succeeded)}"
-                f" model(s) in parallel...[/dim]"
-            )
+            console.print(f"[dim]waiting on /health for {len(result.succeeded)} model(s) in parallel...[/dim]")
             ready_names, wait_failed = _wait_for_profile_in_parallel(
                 project, result.succeeded, wait_timeout, config_dir, health_host
             )
@@ -669,10 +641,7 @@ def profile_list(
         )
     console.print(table)
     if any(v.missing for v in renderable):
-        console.print(
-            "[dim]profiles with missing members: run"
-            " `vllmctl profile show <name>` for details[/dim]"
-        )
+        console.print("[dim]profiles with missing members: run `vllmctl profile show <name>` for details[/dim]")
 
 
 @profile_app.command("show")
@@ -715,9 +684,7 @@ def profile_show(
         console.print("[dim]no models in this profile[/dim]")
 
     if view.missing:
-        console.print(
-            f"\n[yellow]declared but not in catalog:[/yellow] {', '.join(view.missing)}"
-        )
+        console.print(f"\n[yellow]declared but not in catalog:[/yellow] {', '.join(view.missing)}")
 
 
 @app.command()
@@ -792,9 +759,7 @@ def doctor() -> None:
 
 @app.command()
 def completion(
-    shell: str = typer.Argument(
-        ..., help="Shell to generate completion for: bash, zsh, fish, or powershell."
-    ),
+    shell: str = typer.Argument(..., help="Shell to generate completion for: bash, zsh, fish, or powershell."),
 ) -> None:
     """Print a shell completion script.
 

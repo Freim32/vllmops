@@ -132,9 +132,7 @@ class Catalog(BaseModel):
         return None
 
     def next_available_port(self, start: int = 8001) -> int:
-        used_ports = {
-            model.metrics_port for model in self.models if model.metrics_port is not None
-        }
+        used_ports = {model.metrics_port for model in self.models if model.metrics_port is not None}
         port = start
         while port in used_ports:
             port += 1

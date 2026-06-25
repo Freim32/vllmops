@@ -14,32 +14,24 @@ _LOG_HIGHLIGHTS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bINFO\b"), "cyan"),
     (re.compile(r"\bDEBUG\b"), "dim"),
     (re.compile(r"\bTRACEBACK\b", re.IGNORECASE), "bold red"),
-
     # vLLM timestamps (MM-DD HH:MM:SS[.us])
     (re.compile(r"\b\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:[.,]\d+)?\b"), "dim"),
-
     # Source-file references for .py, .c, .go, ... not just Python
     (re.compile(r"\[[\w./-]+\.[a-z]+:\d+\]"), "light_steel_blue"),
-
     # HTTP methods
     (re.compile(r"\b(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b"), "green"),
-
     # URL path. Must follow whitespace or start of line so mid-word slashes
     # like `shape/config` or `tokens/streaming` don't get picked up.
     (re.compile(r"(?:^|(?<=\s))/[a-zA-Z][\w./_{}+-]+"), "blue"),
-
     # HTTP status codes (anchored to the standard `HTTP/x.y" NNN ` access-log shape)
     (re.compile(r'(?<=HTTP/\d\.\d"\s)2\d{2}\b'), "green"),
     (re.compile(r'(?<=HTTP/\d\.\d"\s)3\d{2}\b'), "cyan"),
     (re.compile(r'(?<=HTTP/\d\.\d"\s)4\d{2}\b'), "bold yellow"),
     (re.compile(r'(?<=HTTP/\d\.\d"\s)5\d{2}\b'), "bold red"),
-
     # Token throughput (vLLM's headline metric)
     (re.compile(r"\b\d+(?:\.\d+)?\s*tokens?/s\b"), "bold cyan"),
-
     # Memory sizes with binary/decimal units
     (re.compile(r"\b\d+(?:[.,]\d+)*\s*(?:GiB|MiB|KiB|TiB|GB|MB|KB|TB)\b"), "dim"),
-
     # Durations: explicit unit words, plus the bare `N s` shape used by torch/vLLM
     (re.compile(r"\b\d+(?:\.\d+)?\s*(?:seconds?|secs?|ms|us|μs|ns)\b"), "dim"),
     (re.compile(r"\b\d+(?:\.\d+)?\s+s\b"), "dim"),

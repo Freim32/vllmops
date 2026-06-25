@@ -20,18 +20,14 @@ def test_check_python_version_current_passes() -> None:
     assert sys.version_info >= (3, 10)
 
 
-def test_check_project_root_fails_outside_project(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_check_project_root_fails_outside_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
     result = doctor.check_project_root()
     assert result.status == "fail"
     assert "no .vllmctl/config.yaml" in result.detail
 
 
-def test_check_project_root_ok_inside_project(
-    monkeypatch: pytest.MonkeyPatch, project: Project
-) -> None:
+def test_check_project_root_ok_inside_project(monkeypatch: pytest.MonkeyPatch, project: Project) -> None:
     monkeypatch.chdir(project.root)
     result = doctor.check_project_root()
     assert result.status == "ok"
@@ -67,9 +63,7 @@ def test_check_vllm_executable_present(project: Project) -> None:
     assert result.status == "ok"
 
 
-def test_check_vllm_version_filters_log_prefixed_lines(
-    project: Project, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_check_vllm_version_filters_log_prefixed_lines(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     """Lines starting with a log-level prefix are skipped when picking the version."""
     if sys.platform == "win32":
         fake = project.root / ".venv" / "Scripts" / "vllm.exe"
@@ -80,10 +74,7 @@ def test_check_vllm_version_filters_log_prefixed_lines(
 
     class FakeCompleted:
         returncode = 0
-        stdout = (
-            "WARNING 06-22 18:01:55 Using 'pin_memory=False'.\n"
-            "0.7.3\n"
-        )
+        stdout = "WARNING 06-22 18:01:55 Using 'pin_memory=False'.\n0.7.3\n"
         stderr = ""
 
     def fake_run(*args: object, **kwargs: object) -> FakeCompleted:
@@ -95,9 +86,7 @@ def test_check_vllm_version_filters_log_prefixed_lines(
     assert result.detail == "0.7.3"
 
 
-def test_check_hf_token_from_shell_env(
-    monkeypatch: pytest.MonkeyPatch, project: Project
-) -> None:
+def test_check_hf_token_from_shell_env(monkeypatch: pytest.MonkeyPatch, project: Project) -> None:
     monkeypatch.setenv("HF_TOKEN", "hf_xxxxx")
     result = doctor.check_hf_token(project)
     assert result.status == "ok"
@@ -113,9 +102,7 @@ def test_check_hf_token_from_dotenv(project: Project, monkeypatch: pytest.Monkey
     assert ".env" in result.detail
 
 
-def test_check_hf_token_warns_when_missing(
-    monkeypatch: pytest.MonkeyPatch, project: Project
-) -> None:
+def test_check_hf_token_warns_when_missing(monkeypatch: pytest.MonkeyPatch, project: Project) -> None:
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
     result = doctor.check_hf_token(project)
@@ -193,9 +180,7 @@ def test_check_gpu_conflicts_detects_overlap(project: Project) -> None:
     assert "GPU 1" in result.detail
 
 
-def test_run_checks_no_project(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_run_checks_no_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Outside a project, only ambient checks run plus the project-root fail."""
     monkeypatch.chdir(tmp_path)
     results = doctor.run_checks()
@@ -207,9 +192,7 @@ def test_run_checks_no_project(
     assert ".venv directory" not in names
 
 
-def test_run_checks_full_pipeline(
-    monkeypatch: pytest.MonkeyPatch, project: Project
-) -> None:
+def test_run_checks_full_pipeline(monkeypatch: pytest.MonkeyPatch, project: Project) -> None:
     monkeypatch.chdir(project.root)
     results = doctor.run_checks(project)
     names = [r.name for r in results]

@@ -63,7 +63,7 @@ def test_parse_skips_invalid_value() -> None:
 
 
 def test_parse_handles_inf_and_nan() -> None:
-    text = "metric{le=\"+Inf\"} +Inf\nmetric{le=\"NaN\"} NaN"
+    text = 'metric{le="+Inf"} +Inf\nmetric{le="NaN"} NaN'
     samples = list(parse_prometheus_text(text))
     assert math.isinf(samples[0].value)
     assert math.isnan(samples[1].value)
@@ -265,8 +265,7 @@ def test_kv_cache_new_name_wins_over_old_when_both_present() -> None:
     history = MetricsHistory()
     _ingest_text(
         history,
-        'vllm:kv_cache_usage_perc{model_name="m"} 0.7\n'
-        'vllm:gpu_cache_usage_perc{model_name="m"} 0.2',
+        'vllm:kv_cache_usage_perc{model_name="m"} 0.7\nvllm:gpu_cache_usage_perc{model_name="m"} 0.2',
         ts=1.0,
     )
     snap = snapshot_from_history(history)

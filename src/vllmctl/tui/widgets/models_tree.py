@@ -166,11 +166,7 @@ def _model_label(entry: CatalogEntry) -> Text:
     label.append(entry.name)
     if status.metrics_port:
         port = f":{status.metrics_port}"
-        available = (
-            ModelsTree.CONTENT_WIDTH
-            - ModelsTree.LEAF_PREFIX_WIDTH
-            - ModelsTree.PORT_RIGHT_MARGIN
-        )
+        available = ModelsTree.CONTENT_WIDTH - ModelsTree.LEAF_PREFIX_WIDTH - ModelsTree.PORT_RIGHT_MARGIN
         padding = max(1, available - len(entry.name) - len(port))
         label.append(" " * padding)
         label.append(port, style="dim")

@@ -103,16 +103,11 @@ class ProjectConfig(BaseModel):
     @model_validator(mode="after")
     def _validate_profiles(self) -> "ProjectConfig":
         if GENERAL_PROFILE in self.profiles:
-            raise ValueError(
-                f"{GENERAL_PROFILE!r} is a reserved profile name (synthetic catch-all)"
-            )
+            raise ValueError(f"{GENERAL_PROFILE!r} is a reserved profile name (synthetic catch-all)")
         seen: dict[str, str] = {}
         for profile_name, models in self.profiles.items():
             if not NAME_PATTERN.match(profile_name):
-                raise ValueError(
-                    f"invalid profile name: {profile_name!r}"
-                    f" (must match {NAME_PATTERN.pattern})"
-                )
+                raise ValueError(f"invalid profile name: {profile_name!r} (must match {NAME_PATTERN.pattern})")
             for model_name in models:
                 if model_name in seen:
                     raise ValueError(
@@ -196,8 +191,7 @@ def init_project(
     resolved_name = name if name is not None else sanitize_project_name(root.name)
     if not NAME_PATTERN.match(resolved_name):
         raise ValueError(
-            f"invalid project name: {resolved_name!r} "
-            f"(must match {NAME_PATTERN.pattern}; pass --name to override)"
+            f"invalid project name: {resolved_name!r} (must match {NAME_PATTERN.pattern}; pass --name to override)"
         )
 
     config = ProjectConfig(name=resolved_name)

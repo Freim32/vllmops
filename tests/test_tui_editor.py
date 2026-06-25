@@ -28,17 +28,13 @@ def fake_editors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return bin_dir
 
 
-def test_resolve_editor_prefers_project_config_over_env(
-    fake_editors: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_resolve_editor_prefers_project_config_over_env(fake_editors: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     del fake_editors
     monkeypatch.setenv("EDITOR", "nano")
     assert _resolve_editor("vim") == "vim"
 
 
-def test_resolve_editor_uses_visual_before_editor(
-    fake_editors: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_resolve_editor_uses_visual_before_editor(fake_editors: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     del fake_editors
     monkeypatch.setenv("VISUAL", "micro")
     monkeypatch.setenv("EDITOR", "nano")
@@ -51,9 +47,7 @@ def test_resolve_editor_falls_back_to_first_on_path(fake_editors: Path) -> None:
     assert _resolve_editor(None) == "nano"
 
 
-def test_resolve_editor_returns_none_when_nothing_available(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_resolve_editor_returns_none_when_nothing_available(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     empty_path = tmp_path / "empty-bin"
     empty_path.mkdir()
     monkeypatch.setenv("PATH", str(empty_path))
@@ -62,9 +56,7 @@ def test_resolve_editor_returns_none_when_nothing_available(
     assert _resolve_editor(None) is None
 
 
-def test_resolve_editor_skips_unreachable_configured_value(
-    fake_editors: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_resolve_editor_skips_unreachable_configured_value(fake_editors: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Project config points to a non-existent binary; fall through."""
     del fake_editors, monkeypatch
     assert _resolve_editor("nonexistent-editor-xyz") == "nano"

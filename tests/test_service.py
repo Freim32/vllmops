@@ -49,7 +49,7 @@ def test_parse_dotenv_basic() -> None:
 
 
 def test_parse_dotenv_strips_quotes() -> None:
-    parsed = parse_dotenv('FOO="quoted value"\nBAR=\'single\'')
+    parsed = parse_dotenv("FOO=\"quoted value\"\nBAR='single'")
     assert parsed == {"FOO": "quoted value", "BAR": "single"}
 
 
@@ -93,9 +93,7 @@ def test_load_dotenv_reads_root_env(project: Project) -> None:
 # --- build_runtime_env ---
 
 
-def test_runtime_env_precedence_dotenv_shell_model(
-    project: Project, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_runtime_env_precedence_dotenv_shell_model(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     (project.root / ".env").write_text(
         "DOTENV_ONLY=from_dotenv\nSHARED=dotenv_wins\nMODEL_OVERRIDE=dotenv\n",
         encoding="utf-8",
@@ -114,17 +112,13 @@ def test_runtime_env_precedence_dotenv_shell_model(
     assert env["MODEL_ONLY"] == "from_model"
 
 
-def test_runtime_env_sets_pythonunbuffered_by_default(
-    project: Project, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_runtime_env_sets_pythonunbuffered_by_default(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PYTHONUNBUFFERED", raising=False)
     env = build_runtime_env(project, {})
     assert env["PYTHONUNBUFFERED"] == "1"
 
 
-def test_runtime_env_pythonunbuffered_is_overridable(
-    project: Project, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_runtime_env_pythonunbuffered_is_overridable(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     """The baseline PYTHONUNBUFFERED=1 is just a default; user input wins."""
     monkeypatch.setenv("PYTHONUNBUFFERED", "0")
     env = build_runtime_env(project, {})
@@ -134,9 +128,7 @@ def test_runtime_env_pythonunbuffered_is_overridable(
     assert env2["PYTHONUNBUFFERED"] == "x"
 
 
-def test_runtime_env_no_venv_leaves_path_alone(
-    project: Project, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_runtime_env_no_venv_leaves_path_alone(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     """Without a project venv, PATH and VIRTUAL_ENV are not touched."""
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
@@ -145,9 +137,7 @@ def test_runtime_env_no_venv_leaves_path_alone(
     assert "VIRTUAL_ENV" not in env
 
 
-def test_runtime_env_venv_prepends_path_and_sets_virtual_env(
-    project: Project, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_runtime_env_venv_prepends_path_and_sets_virtual_env(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     """When .venv exists, its bin/Scripts dir is prepended to PATH."""
     venv_bin = project.root / ".venv" / "bin"
     venv_bin.mkdir(parents=True)
@@ -158,9 +148,7 @@ def test_runtime_env_venv_prepends_path_and_sets_virtual_env(
     assert env["VIRTUAL_ENV"] == str(project.root / ".venv")
 
 
-def test_runtime_env_venv_drops_pythonhome(
-    project: Project, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_runtime_env_venv_drops_pythonhome(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     """PYTHONHOME is removed when a project venv is active, it would break the venv."""
     venv_bin = project.root / ".venv" / "bin"
     venv_bin.mkdir(parents=True)
@@ -388,9 +376,7 @@ def test_can_stop_rejects_stopped() -> None:
     assert service.can_stop(project, _entry("a", running=False)) is False  # type: ignore[arg-type]
 
 
-def test_can_stop_broken_with_live_pid(
-    project: Project, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_can_stop_broken_with_live_pid(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     """A broken entry whose PID file points to a live process is stoppable."""
     write_model_yaml(project, "ok", sleeper_payload("ok", port=18001))
     bad = project.models_dir / "broken.yaml"
@@ -402,9 +388,7 @@ def test_can_stop_broken_with_live_pid(
 
     monkeypatch.setattr(service.lifecycle, "is_alive", lambda pid: pid == 12345)
 
-    broken_entry = next(
-        e for e in service.list_catalog_entries(project) if e.name == "broken"
-    )
+    broken_entry = next(e for e in service.list_catalog_entries(project) if e.name == "broken")
     assert broken_entry.is_broken
     assert service.can_stop(project, broken_entry) is True
 
@@ -414,15 +398,11 @@ def test_can_stop_broken_without_pid_file(project: Project) -> None:
     bad = project.models_dir / "broken.yaml"
     bad.write_text("name: broken\nbogus_field: 1\n", encoding="utf-8")
 
-    broken_entry = next(
-        e for e in service.list_catalog_entries(project) if e.name == "broken"
-    )
+    broken_entry = next(e for e in service.list_catalog_entries(project) if e.name == "broken")
     assert service.can_stop(project, broken_entry) is False
 
 
-def test_can_stop_broken_with_dead_pid(
-    project: Project, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_can_stop_broken_with_dead_pid(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     """A broken entry with a stale PID file (process gone) cannot be stopped."""
     bad = project.models_dir / "broken.yaml"
     bad.write_text("name: broken\nbogus_field: 1\n", encoding="utf-8")
@@ -433,9 +413,7 @@ def test_can_stop_broken_with_dead_pid(
 
     monkeypatch.setattr(service.lifecycle, "is_alive", lambda pid: False)
 
-    broken_entry = next(
-        e for e in service.list_catalog_entries(project) if e.name == "broken"
-    )
+    broken_entry = next(e for e in service.list_catalog_entries(project) if e.name == "broken")
     assert service.can_stop(project, broken_entry) is False
 
 
@@ -861,9 +839,7 @@ def test_wait_for_ready_dead_pid_raises_startup_failed(project: Project) -> None
         wait_for_ready(project, "m", timeout=1.0, interval=0.05)
 
 
-def test_wait_for_ready_returns_when_health_responds(
-    project: Project, mock_health_server: tuple[int, object]
-) -> None:
+def test_wait_for_ready_returns_when_health_responds(project: Project, mock_health_server: tuple[int, object]) -> None:
     port, _ = mock_health_server
     write_model_yaml(project, "m", sleeper_payload("m", port=port))
     paths = service.runtime_paths_for(project, "m")
@@ -928,17 +904,13 @@ def test_check_vllm_available_raises_for_missing_default(project: Project) -> No
         check_vllm_available(project, "vllm")
 
 
-def test_check_vllm_available_accepts_existing_absolute_path(
-    project: Project, tmp_path: Path
-) -> None:
+def test_check_vllm_available_accepts_existing_absolute_path(project: Project, tmp_path: Path) -> None:
     fake = tmp_path / "vllm"
     fake.write_text("#!/bin/sh\nexit 0\n")
     check_vllm_available(project, str(fake))  # must not raise
 
 
-def test_check_vllm_available_rejects_missing_absolute_path(
-    project: Project, tmp_path: Path
-) -> None:
+def test_check_vllm_available_rejects_missing_absolute_path(project: Project, tmp_path: Path) -> None:
     with pytest.raises(VllmExecutableNotFoundError, match="not found at"):
         check_vllm_available(project, str(tmp_path / "nope" / "vllm"))
 
@@ -947,9 +919,7 @@ def test_check_vllm_available_rejects_missing_absolute_path(
 
 
 def test_create_model_writes_yaml(project: Project) -> None:
-    result = service.create_model(
-        project, name="newm", hf_model="hf/x", gpus="0", port=18001
-    )
+    result = service.create_model(project, name="newm", hf_model="hf/x", gpus="0", port=18001)
     assert result.destination.is_file()
     assert result.destination.name == "newm.yaml"
 
@@ -962,9 +932,7 @@ def test_create_model_refuses_existing_without_force(project: Project) -> None:
 
 def test_create_model_force_overwrites(project: Project) -> None:
     service.create_model(project, name="dup", hf_model="hf/x", gpus="0", port=18001)
-    result = service.create_model(
-        project, name="dup", hf_model="hf/y", gpus="0", port=18002, force=True
-    )
+    result = service.create_model(project, name="dup", hf_model="hf/y", gpus="0", port=18002, force=True)
     assert result.model.vllm.model == "hf/y"
 
 
@@ -978,9 +946,7 @@ def test_fast_exit_payload_is_valid_yaml(project: Project, tmp_path: Path) -> No
 # --- smoke_test_model ---
 
 
-def _make_model_cfg(
-    args: dict | None = None, extra: list[str] | None = None
-) -> ModelConfig:
+def _make_model_cfg(args: dict | None = None, extra: list[str] | None = None) -> ModelConfig:
     """Tiny ModelConfig builder for _resolve_served_name unit tests."""
     return ModelConfig(
         name="x",
@@ -1036,9 +1002,7 @@ def test_stop_model_tolerates_broken_yaml(project: Project) -> None:
 
 
 @posix_only
-def test_start_model_raises_port_conflict_when_other_running(
-    project: Project, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_start_model_raises_port_conflict_when_other_running(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     """If model B claims the same port as already-running model A, start fails."""
     write_model_yaml(project, "a", sleeper_payload("a", port=18001))
     write_model_yaml(project, "b", sleeper_payload("b", port=18001))
@@ -1049,9 +1013,7 @@ def test_start_model_raises_port_conflict_when_other_running(
     a_paths = service.runtime_paths_for(project, "a")
     real_list = service.list_catalog_entries
 
-    def faked_list(
-        proj: Project, config_dir: Path | None = None
-    ) -> list[CatalogEntry]:
+    def faked_list(proj: Project, config_dir: Path | None = None) -> list[CatalogEntry]:
         entries = real_list(proj, config_dir)
         patched: list[CatalogEntry] = []
         for entry in entries:
@@ -1107,9 +1069,7 @@ def test_smoke_test_returns_response_on_success(
     smoke test parses the response."""
     port, handler_class = mock_completions
     handler_class.response_status = 200
-    handler_class.response_body = json.dumps(
-        {"choices": [{"text": " Hello there!"}]}
-    ).encode("utf-8")
+    handler_class.response_body = json.dumps({"choices": [{"text": " Hello there!"}]}).encode("utf-8")
 
     write_model_yaml(project, "mock", sleeper_payload("mock", port=port))
     service.start_model(project, "mock")
@@ -1133,9 +1093,7 @@ def test_smoke_test_reports_http_error(
 ) -> None:
     port, handler_class = mock_completions
     handler_class.response_status = 400
-    handler_class.response_body = json.dumps(
-        {"error": {"message": "model 'wrong-name' not found"}}
-    ).encode("utf-8")
+    handler_class.response_body = json.dumps({"error": {"message": "model 'wrong-name' not found"}}).encode("utf-8")
 
     write_model_yaml(project, "mock", sleeper_payload("mock", port=port))
     service.start_model(project, "mock")

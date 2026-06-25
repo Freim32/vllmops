@@ -18,9 +18,7 @@ from vllmctl.project import Project, find_project_root, load_project
 
 Status = Literal["ok", "warn", "fail"]
 
-_LOG_LINE_PREFIX = re.compile(
-    r"^(WARNING|INFO|ERROR|DEBUG|CRITICAL)\b", re.IGNORECASE
-)
+_LOG_LINE_PREFIX = re.compile(r"^(WARNING|INFO|ERROR|DEBUG|CRITICAL)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -217,9 +215,7 @@ def check_port_conflicts(project: Project) -> CheckResult:
         by_port.setdefault(entry.status.metrics_port, []).append(entry.name)
     conflicts = {port: names for port, names in by_port.items() if len(names) > 1}
     if conflicts:
-        items = "; ".join(
-            f"port {port}: {', '.join(names)}" for port, names in conflicts.items()
-        )
+        items = "; ".join(f"port {port}: {', '.join(names)}" for port, names in conflicts.items())
         return CheckResult(
             "Port conflicts",
             "warn",

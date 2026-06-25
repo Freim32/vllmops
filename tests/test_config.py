@@ -61,18 +61,14 @@ def test_vllm_command_args_renders_dict_args() -> None:
 
 
 def test_vllm_command_args_bool_flag_only_if_true() -> None:
-    cfg = VllmConfig.model_validate(
-        {"model": "m", "args": {"--enable": True, "--disable": False}}
-    )
+    cfg = VllmConfig.model_validate({"model": "m", "args": {"--enable": True, "--disable": False}})
     cmd = cfg.command_args()
     assert "--enable" in cmd
     assert "--disable" not in cmd
 
 
 def test_vllm_command_args_repeats_list_values() -> None:
-    cfg = VllmConfig.model_validate(
-        {"model": "m", "args": {"--lora-modules": ["a=/p", "b=/q"]}}
-    )
+    cfg = VllmConfig.model_validate({"model": "m", "args": {"--lora-modules": ["a=/p", "b=/q"]}})
     cmd = cfg.command_args()
     assert cmd.count("--lora-modules") == 2
 
@@ -182,9 +178,7 @@ def test_tensor_parallel_size_from_gpus() -> None:
 
 
 def test_create_default_model_config_sets_tensor_parallel_size_to_gpu_count() -> None:
-    model = create_default_model_config(
-        name="m", hf_model="hf/m", gpus="0,1,2", port=8001
-    )
+    model = create_default_model_config(name="m", hf_model="hf/m", gpus="0,1,2", port=8001)
     assert model.vllm.args["--tensor-parallel-size"] == 3
 
 
@@ -202,9 +196,7 @@ def test_create_default_model_config_silences_polling_endpoints() -> None:
 
 
 def test_dump_and_load_model_roundtrip(tmp_path: Path) -> None:
-    model = create_default_model_config(
-        name="m1", hf_model="hf/m", gpus="0", port=8001
-    )
+    model = create_default_model_config(name="m1", hf_model="hf/m", gpus="0", port=8001)
     path = tmp_path / "m1.yaml"
     dump_model_file(path, model)
     loaded = load_model_file(path)
