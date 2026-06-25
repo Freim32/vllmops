@@ -51,7 +51,7 @@ class ErrorsPanel(Vertical):
     """
 
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(id="errors")
         self._body = Static("", id="error-body")
         self._path = Static("", id="error-path")
         self._hint = Static("", id="error-hint")
@@ -75,7 +75,4 @@ class ErrorsPanel(Vertical):
             self._path.update(f"in {escape(str(yaml_path))}")
         else:
             self._path.update("")
-        self._hint.update(
-            "press 'e' to edit and fix\n"
-            "if a process is still running, 'S' (stop) still works"
-        )
+        self._hint.update("press 'e' to edit and fix\nif a process is still running, 'S' (stop) still works")

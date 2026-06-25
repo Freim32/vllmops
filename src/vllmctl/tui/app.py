@@ -15,7 +15,7 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header
+from textual.widgets import ContentSwitcher, Footer, Header
 
 from vllmctl import gpu as gpu_module
 from vllmctl import metrics, service
@@ -67,16 +67,19 @@ class VllmctlApp(App):
         height: 2fr;
     }
     #right > #metrics-row {
+        height: 1fr;
+    }
+    #metrics-group {
         layout: horizontal;
         height: 1fr;
     }
-    #right > #metrics-row > MetricsPanel {
+    #metrics-group > MetricsPanel {
         width: 1fr;
     }
-    #right > #metrics-row > GpuPanel {
+    #metrics-group > GpuPanel {
         width: 1fr;
     }
-    #right > #metrics-row > ErrorsPanel {
+    #metrics-row > ErrorsPanel {
         width: 1fr;
     }
     """
@@ -100,9 +103,7 @@ class VllmctlApp(App):
         if action == "start_model":
             return self._any_target_entry(service.can_start)
         if action == "stop_model":
-            return self._any_target_entry(
-                lambda e: service.can_stop(self._options.project, e)
-            )
+            return self._any_target_entry(lambda e: service.can_stop(self._options.project, e))
         if action == "restart_model":
             return self._any_target_entry(service.can_restart)
         if action == "smoke_test":
@@ -113,14 +114,10 @@ class VllmctlApp(App):
             return self._models.selected_model_name is not None
         if action == "copy_logs":
             entry = self._selected_model_entry()
-            return entry is not None and service.can_copy_logs(
-                self._options.project, entry
-            )
+            return entry is not None and service.can_copy_logs(self._options.project, entry)
         return True
 
-    def _any_target_entry(
-        self, predicate: Callable[[service.CatalogEntry], bool]
-    ) -> bool:
+    def _any_target_entry(self, predicate: Callable[[service.CatalogEntry], bool]) -> bool:
         """True if at least one entry under the current selection passes the predicate."""
         entries = self._target_entries()
         return any(predicate(entry) for entry in entries)
@@ -164,9 +161,10 @@ class VllmctlApp(App):
                 yield self._models
             with Vertical(id="right"):
                 yield self._logs
-                with Horizontal(id="metrics-row"):
-                    yield self._metrics
-                    yield self._gpu_panel
+                with ContentSwitcher(initial="metrics-group", id="metrics-row"):
+                    with Horizontal(id="metrics-group"):
+                        yield self._metrics
+                        yield self._gpu_panel
                     yield self._errors
         yield Footer()
 
@@ -174,7 +172,6 @@ class VllmctlApp(App):
         self.title = "vllmctl"
         self.sub_title = self._options.project.name
         self.theme = self._options.theme
-        self._errors.display = False
         self._refresh_statuses()
         self.set_interval(STATUS_REFRESH_SECONDS, self._refresh_statuses)
         self.set_interval(LOG_POLL_SECONDS, self._poll_logs)
@@ -299,14 +296,10 @@ class VllmctlApp(App):
         self._render_metrics_panel()
 
     def _show_metrics_pane(self) -> None:
-        self._errors.display = False
-        self._metrics.display = True
-        self._gpu_panel.display = True
+        self.query_one("#metrics-row", ContentSwitcher).current = "metrics-group"
 
     def _show_errors_pane(self) -> None:
-        self._metrics.display = False
-        self._gpu_panel.display = False
-        self._errors.display = True
+        self.query_one("#metrics-row", ContentSwitcher).current = "errors"
 
     def _render_metrics_panel(self) -> None:
         name = self._models.selected_model_name
@@ -444,7 +437,7 @@ class VllmctlApp(App):
 
         truncated = False
         if len(text.encode("utf-8")) > self.LOG_CLIPBOARD_LIMIT_BYTES:
-            text = text[-self.LOG_CLIPBOARD_LIMIT_BYTES:]
+            text = text[-self.LOG_CLIPBOARD_LIMIT_BYTES :]
             text = "[truncated to the last ~1 MB]\n" + text
             truncated = True
 
@@ -589,16 +582,12 @@ class VllmctlApp(App):
     async def _do_start_profile(self, profile: str, label: str) -> None:
         del label
         try:
-            result = await asyncio.to_thread(
-                service.start_profile, self._options.project, profile
-            )
+            result = await asyncio.to_thread(service.start_profile, self._options.project, profile)
             self._notify_bulk(result)
         except service.UnknownProfileError:
             self.notify(f"unknown profile: {profile}", severity="error", timeout=3)
         except Exception as exc:
-            self.notify(
-                f"profile start failed: {exc}", severity="error", timeout=5, markup=False
-            )
+            self.notify(f"profile start failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
             self._busy = False
             self._refresh_statuses()
@@ -606,18 +595,14 @@ class VllmctlApp(App):
     async def _do_stop_profile(self, profile: str, label: str) -> None:
         del label
         try:
-            result = await asyncio.to_thread(
-                service.stop_profile, self._options.project, profile
-            )
+            result = await asyncio.to_thread(service.stop_profile, self._options.project, profile)
             self._notify_bulk(result)
             for name in result.succeeded:
                 self._histories.pop(name, None)
         except service.UnknownProfileError:
             self.notify(f"unknown profile: {profile}", severity="error", timeout=3)
         except Exception as exc:
-            self.notify(
-                f"profile stop failed: {exc}", severity="error", timeout=5, markup=False
-            )
+            self.notify(f"profile stop failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
             self._busy = False
             self._refresh_statuses()
@@ -625,18 +610,14 @@ class VllmctlApp(App):
     async def _do_restart_profile(self, profile: str, label: str) -> None:
         del label
         try:
-            result = await asyncio.to_thread(
-                service.restart_profile, self._options.project, profile
-            )
+            result = await asyncio.to_thread(service.restart_profile, self._options.project, profile)
             self._notify_bulk(result)
             for name in result.succeeded:
                 self._histories.pop(name, None)
         except service.UnknownProfileError:
             self.notify(f"unknown profile: {profile}", severity="error", timeout=3)
         except Exception as exc:
-            self.notify(
-                f"profile restart failed: {exc}", severity="error", timeout=5, markup=False
-            )
+            self.notify(f"profile restart failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
             self._busy = False
             self._refresh_statuses()

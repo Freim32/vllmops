@@ -6,9 +6,12 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import RichLog, Static
+from textual.widgets import ContentSwitcher, RichLog, Static
 
 from vllmctl.tui.widgets.highlighter import VllmLogHighlighter, strip_process_prefix
+
+_LOG_VIEW = "log-content"
+_PLACEHOLDER_VIEW = "log-placeholder"
 
 
 class LogViewer(Vertical):
@@ -23,10 +26,10 @@ class LogViewer(Vertical):
     LogViewer:focus-within {
         border: round $primary;
     }
-    LogViewer > RichLog {
+    LogViewer > ContentSwitcher {
         height: 1fr;
     }
-    LogViewer > #log-placeholder {
+    LogViewer #log-placeholder {
         align: center middle;
         height: 1fr;
         width: 100%;
@@ -46,42 +49,48 @@ class LogViewer(Vertical):
             markup=False,
             max_lines=max_lines,
             wrap=True,
+            id=_LOG_VIEW,
         )
         self._log.highlighter = VllmLogHighlighter()
-        self._placeholder_body = Static("", id="log-placeholder-body")
+        self._placeholder_body = Static("[dim]no model selected[/dim]", id="log-placeholder-body")
         self._path: Path | None = None
         self._offset = 0
         self.border_title = "Logs"
 
     def compose(self) -> ComposeResult:
-        yield self._log
-        with Vertical(id="log-placeholder"):
-            yield self._placeholder_body
+        with ContentSwitcher(initial=_PLACEHOLDER_VIEW):
+            yield self._log
+            with Vertical(id=_PLACEHOLDER_VIEW):
+                yield self._placeholder_body
 
     def on_mount(self) -> None:
-        self._show_placeholder("[dim]no model selected[/dim]")
+        # Initial state is the placeholder with "no model selected" baked into
+        # the Static at construction; `attach()` will swap in a per-model
+        # message once the cursor lands somewhere.
+        pass
 
     def attach(self, path: Path | None, label: str) -> None:
         """Switch to a new log file. Resets buffer and seeks to end."""
         self.border_title = f"Logs · {label}"
         self._log.clear()
         self._path = path
-        if path is not None and path.is_file():
-            self._offset = path.stat().st_size
-            tail = _read_last_bytes(path, max_bytes=8192)
-            for line in tail.splitlines():
-                self._log.write(strip_process_prefix(line))
-            self._offset = path.stat().st_size
-            self._show_log()
-        elif path is None:
+        if path is None:
             self._offset = 0
             self._show_placeholder("[dim]no model selected[/dim]")
-        else:
+            return
+        # A zero-byte file is still treated as "no log yet"; `poll()` will swap
+        # to the log view once the first byte lands.
+        size = path.stat().st_size if path.is_file() else 0
+        if size == 0:
             self._offset = 0
-            self._show_placeholder(
-                "[bold]no log file yet[/bold]\n\n"
-                "[dim]press 's' to start the model[/dim]"
-            )
+            self._show_placeholder("[bold]no log file yet[/bold]\n\n[dim]press 's' to start the model[/dim]")
+            return
+        self._offset = size
+        tail = _read_last_bytes(path, max_bytes=8192)
+        for line in tail.splitlines():
+            self._log.write(strip_process_prefix(line))
+        self._offset = path.stat().st_size
+        self._show_log()
 
     def poll(self) -> None:
         """Read new bytes appended since last poll."""
@@ -106,20 +115,18 @@ class LogViewer(Vertical):
         text = chunk.decode("utf-8", errors="replace")
         for line in text.splitlines():
             self._log.write(strip_process_prefix(line))
-        if not self._log.display:
-            self._show_log()
+        self._show_log()
 
     def _show_placeholder(self, message: str) -> None:
+        self._switcher.current = _PLACEHOLDER_VIEW
         self._placeholder_body.update(message)
-        self._log.display = False
-        self._get_placeholder().display = True
 
     def _show_log(self) -> None:
-        self._log.display = True
-        self._get_placeholder().display = False
+        self._switcher.current = _LOG_VIEW
 
-    def _get_placeholder(self) -> Vertical:
-        return self.query_one("#log-placeholder", Vertical)
+    @property
+    def _switcher(self) -> ContentSwitcher:
+        return self.query_one(ContentSwitcher)
 
 
 def _read_last_bytes(path: Path, *, max_bytes: int) -> str:
