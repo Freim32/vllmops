@@ -1,0 +1,30 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What did you run, what did you see, what did you expect.
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Doctor output (optional but helpful)
+      description: Output of `vllmctl doctor`. Skip if it does not apply.
+      render: shell
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce (optional)
+      description: A small model YAML or a couple of commands go a long way.
+
+  - type: input
+    id: version
+    attributes:
+      label: vllmctl version / OS
+      placeholder: "0.3.0, Ubuntu 22.04, Python 3.11"

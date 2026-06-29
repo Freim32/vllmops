@@ -1,0 +1,17 @@
+name: Feature request
+description: Suggest a feature or behavior change
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to see
+      description: Describe the feature, the command, the TUI affordance, or the YAML key you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it would help
+      description: Briefly, what problem this solves for you.

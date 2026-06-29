@@ -20,14 +20,25 @@
 
 ## Overview
 
-`vllmctl` declares vLLM models as YAML and runs them as plain detached processes. It ships a Textual TUI that scrapes each model's `/metrics` endpoint directly into an in-memory ring buffer, so you get live throughput, latency, KV cache and GPU stats without Docker, Prometheus or Grafana.
+Self-hosted vLLM made simple. Declare each model in its own YAML file, group models into profiles in your project config, then drive their full lifecycle from either the CLI or a live TUI.
 
-- **One YAML per model.** Version-controlled with the rest of your project.
-- **Predictable lifecycle.** `start`, `stop`, `restart`, `status`, `health`, `logs`.
-- **Profile groups.** Group models, run lifecycle on all of them in parallel (Docker-Desktop style).
-- **Live metrics, no stack.** Direct `/metrics` scrape, ~30 min history per model.
-- **Per-project venv.** Activates the project's `.venv` automatically, no global `vllm` required.
+- **Git-friendly YAML.** One file per model, profiles in `.vllmctl/config.yaml`. Reviewed in pull requests, reproducible on a fresh machine.
+- **Full lifecycle.** `start`, `stop`, `restart`, `status`, `health`, `logs`. Single model or whole profile, in parallel.
+- **CLI and TUI, same actions.** Run from the terminal in scripts, or open the TUI for a live view.
+- **Live metrics, no stack.** Direct `/metrics` scrape, in-memory ring buffer. No Docker, no Prometheus, no Grafana.
+- **Per-project venv.** Each workspace pins its own vLLM via `uv`. No global install required.
 - **POSIX, type-checked, tested.** Linux/macOS, mypy strict, 180+ tests.
+
+## Contents
+
+- [Install](#install)
+- [Quickstart](#quickstart)
+- [Model YAML](#model-yaml)
+- [Profiles](#profiles)
+- [Commands](#commands)
+- [Shell completion](#shell-completion)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Install
 
@@ -68,23 +79,32 @@ my-llms/
 
 ## Model YAML
 
+`vllmctl create-model --name qwen3 --model Qwen/Qwen3-8B --gpus 0 --port 8001` writes:
+
 ```yaml
 name: qwen3
-metrics_port: 8001
 env:
-  CUDA_VISIBLE_DEVICES: "0"
-  HF_TOKEN: ${HF_TOKEN}
+  CUDA_VISIBLE_DEVICES: '0'
+  HF_HOME: data/huggingface
+  VLLM_LOGGING_LEVEL: INFO
 vllm:
+  executable: vllm
+  subcommand: serve
   model: Qwen/Qwen3-8B
   args:
+    --host: 0.0.0.0
     --port: 8001
-    --max-model-len: 8192
-  flags:
-    - --disable-access-log-for-endpoints
-    - /health,/metrics,/ping
+    --tensor-parallel-size: 1
+    --dtype: auto
+    --served-model-name: qwen3
+    --disable-access-log-for-endpoints: /health,/metrics,/ping
+  flags: []
+  extra_args: []
+metrics:
+  path: /metrics
 ```
 
-`env` supports `${VAR}` interpolation from the shell, `.env`, and the project config (shell wins).
+`env` supports `${VAR}` interpolation from the shell, `.env`, and the project config (shell wins). Add `HF_TOKEN: ${HF_TOKEN}` for gated models.
 
 ## Profiles
 
@@ -144,16 +164,9 @@ vllmctl completion fish > ~/.config/fish/completions/vllmctl.fish
 
 Restart your shell. Alternative: `vllmctl --install-completion` auto-detects the current shell and installs in one step.
 
-## Development
+## Contributing
 
-```bash
-git clone https://github.com/Freim32/vllmctl
-cd vllmctl
-uv sync
-uv run pytest
-uv run mypy
-uv run ruff check src tests
-```
+Contributions of any size are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup and the project checks.
 
 ## License
 
