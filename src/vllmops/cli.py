@@ -8,9 +8,9 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from vllmctl import __version__, service
-from vllmctl.project import Project
-from vllmctl.service import (
+from vllmops import __version__, service
+from vllmops.project import Project
+from vllmops.service import (
     ModelAlreadyExistsError,
     ModelAlreadyRunningError,
     ModelNotRunningError,
@@ -23,14 +23,14 @@ from vllmctl.service import (
 )
 
 app = typer.Typer(help="Manage bare-metal vLLM models with a TUI for live metrics.")
-profile_app = typer.Typer(help="Inspect model profiles defined in .vllmctl/config.yaml.")
+profile_app = typer.Typer(help="Inspect model profiles defined in .vllmops/config.yaml.")
 app.add_typer(profile_app, name="profile")
 console = Console()
 
 
 def _version_callback(value: bool) -> None:
     if value:
-        console.print(f"vllmctl {__version__}")
+        console.print(f"vllmops {__version__}")
         raise typer.Exit()
 
 
@@ -51,7 +51,7 @@ def _root(
 
 @app.command()
 def init(
-    path: Path = typer.Argument(Path("."), help="Directory to initialize as a vllmctl project."),
+    path: Path = typer.Argument(Path("."), help="Directory to initialize as a vllmops project."),
     name: str | None = typer.Option(
         None,
         "--name",
@@ -65,9 +65,9 @@ def init(
         help="Overwrite existing project files (config.yaml, pyproject.toml, .env.example, ...).",
     ),
 ) -> None:
-    """Initialize a vllmctl project workspace.
+    """Initialize a vllmops project workspace.
 
-    Generates the directory layout, .vllmctl/config.yaml, a pyproject.toml with
+    Generates the directory layout, .vllmops/config.yaml, a pyproject.toml with
     `vllm` as a dependency, .python-version, .env.example, and .gitignore.
     Run `uv sync` (or equivalent) inside the project to create the .venv with
     vLLM installed.
@@ -86,19 +86,19 @@ def init(
         raise typer.Exit(code=1) from exc
 
     project = service.get_project(path)
-    console.print(f"[bold green]Initialized vllmctl project[/bold green] {project.name} at {project.root}")
+    console.print(f"[bold green]Initialized vllmops project[/bold green] {project.name} at {project.root}")
     for file in written:
         console.print(f"[green]wrote[/green] {file}")
     console.print("\n[dim]Next steps:[/dim]")
     console.print(f"  [cyan]cd {project.root}[/cyan]")
     console.print("  [cyan]uv sync[/cyan]                   # creates .venv and installs vLLM")
-    console.print("  [cyan]vllmctl create-model ...[/cyan]")
-    console.print("  [cyan]vllmctl start <name>[/cyan]")
+    console.print("  [cyan]vllmops create-model ...[/cyan]")
+    console.print("  [cyan]vllmops start <name>[/cyan]")
 
 
 @app.command("create-model")
 def create_model(
-    name: str | None = typer.Option(None, "--name", "-n", help="Mnemonic model name used by vllmctl."),
+    name: str | None = typer.Option(None, "--name", "-n", help="Mnemonic model name used by vllmops."),
     hf_model: str | None = typer.Option(None, "--model", "-m", help="HuggingFace model id or local path."),
     gpus: str | None = typer.Option(None, "--gpus", "-g", help="CUDA_VISIBLE_DEVICES, e.g. 0 or 0,1."),
     port: int | None = typer.Option(None, "--port", "-p", help="vLLM HTTP port."),
@@ -146,8 +146,8 @@ def create_model(
 
     console.print(f"[green]wrote[/green] {result.destination}")
     console.print("Edit this YAML by hand for advanced vLLM args, then run:")
-    console.print("  vllmctl validate")
-    console.print(f"  vllmctl start {resolved_name}")
+    console.print("  vllmops validate")
+    console.print(f"  vllmops start {resolved_name}")
 
 
 @app.command()
@@ -226,7 +226,7 @@ def _require_one_target(model_name: str | None, profile: str | None, command: st
     if model_name is None and profile is None:
         raise typer.BadParameter(
             f"missing target: pass a model name or --profile <name> "
-            f"(usage: vllmctl {command} <model_name> | --profile <name>)"
+            f"(usage: vllmops {command} <model_name> | --profile <name>)"
         )
     if model_name is not None and profile is not None:
         raise typer.BadParameter("provide either a model name or --profile, not both")
@@ -367,7 +367,7 @@ def start(
         console.print(f"  loaded {dotenv_count} var(s) from .env (shell takes precedence)")
 
     if not wait:
-        console.print(f"  follow startup with: vllmctl logs {model_name} --follow")
+        console.print(f"  follow startup with: vllmops logs {model_name} --follow")
         return
 
     if status.metrics_port is None:
@@ -394,7 +394,7 @@ def start(
         raise typer.Exit(code=1) from exc
     except ModelStartupTimeoutError as exc:
         console.print(f"[bold red]Timeout:[/bold red] {exc}")
-        console.print(f"  process is still running; tail with: vllmctl logs {model_name} --follow")
+        console.print(f"  process is still running; tail with: vllmops logs {model_name} --follow")
         raise typer.Exit(code=1) from exc
     except Exception as exc:
         console.print(f"[bold red]Wait failed:[/bold red] {exc}")
@@ -645,7 +645,7 @@ def profile_list(
         )
     console.print(table)
     if any(v.missing for v in renderable):
-        console.print("[dim]profiles with missing members: run `vllmctl profile show <name>` for details[/dim]")
+        console.print("[dim]profiles with missing members: run `vllmops profile show <name>` for details[/dim]")
 
 
 @profile_app.command("show")
@@ -711,24 +711,24 @@ def tui(
     session. No external Prometheus or Docker stack required.
     """
     # Lazy import: keeps textual out of the import path of non-TUI commands.
-    from vllmctl.tui import VllmctlApp  # noqa: PLC0415
-    from vllmctl.tui.app import TuiOptions  # noqa: PLC0415
+    from vllmops.tui import VllmopsApp  # noqa: PLC0415
+    from vllmops.tui.app import TuiOptions  # noqa: PLC0415
 
     project = service.get_project()
     options = TuiOptions(project=project, health_host=health_host, theme=theme)
-    VllmctlApp(options).run()
+    VllmopsApp(options).run()
 
 
 @app.command()
 def doctor() -> None:
-    """Diagnose the local vllmctl setup.
+    """Diagnose the local vllmops setup.
 
     Runs a series of read-only checks against the environment, the project
     config, and the model catalog. Exits with code 1 if any check fails.
-    Warnings do not affect the exit code, so you can chain `vllmctl doctor &&
-    vllmctl start --profile prod` in scripts and CI.
+    Warnings do not affect the exit code, so you can chain `vllmops doctor &&
+    vllmops start --profile prod` in scripts and CI.
     """
-    from vllmctl import doctor as doctor_module  # noqa: PLC0415
+    from vllmops import doctor as doctor_module  # noqa: PLC0415
 
     results = doctor_module.run_checks()
 
@@ -769,11 +769,11 @@ def completion(
 
     Redirect the output into your shell's completion directory:
 
-      bash: vllmctl completion bash > ~/.local/share/bash-completion/completions/vllmctl
-      zsh:  vllmctl completion zsh  > ~/.zfunc/_vllmctl   (ensure fpath includes ~/.zfunc)
-      fish: vllmctl completion fish > ~/.config/fish/completions/vllmctl.fish
+      bash: vllmops completion bash > ~/.local/share/bash-completion/completions/vllmops
+      zsh:  vllmops completion zsh  > ~/.zfunc/_vllmops   (ensure fpath includes ~/.zfunc)
+      fish: vllmops completion fish > ~/.config/fish/completions/vllmops.fish
 
-    Alternative: `vllmctl --install-completion` auto-detects the current shell.
+    Alternative: `vllmops --install-completion` auto-detects the current shell.
     """
     from typer._completion_classes import (  # noqa: PLC0415
         BashComplete,
@@ -796,7 +796,7 @@ def completion(
         raise typer.Exit(code=1)
 
     click_command = typer.main.get_command(app)
-    completer = completers[shell](click_command, {}, "vllmctl", "_VLLMCTL_COMPLETE")
+    completer = completers[shell](click_command, {}, "vllmops", "_VLLMOPS_COMPLETE")
     print(completer.source())
 
 

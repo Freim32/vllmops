@@ -1,4 +1,4 @@
-"""Tests for vllmctl.doctor environment diagnostic checks."""
+"""Tests for vllmops.doctor environment diagnostic checks."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import sleeper_payload, write_model_yaml
-from vllmctl import doctor
-from vllmctl.project import Project
+from vllmops import doctor
+from vllmops.project import Project
 
 
 def test_check_python_version_current_passes() -> None:
@@ -24,7 +24,7 @@ def test_check_project_root_fails_outside_project(monkeypatch: pytest.MonkeyPatc
     monkeypatch.chdir(tmp_path)
     result = doctor.check_project_root()
     assert result.status == "fail"
-    assert "no .vllmctl/config.yaml" in result.detail
+    assert "no .vllmops/config.yaml" in result.detail
 
 
 def test_check_project_root_ok_inside_project(monkeypatch: pytest.MonkeyPatch, project: Project) -> None:
@@ -80,7 +80,7 @@ def test_check_vllm_version_filters_log_prefixed_lines(project: Project, monkeyp
     def fake_run(*_args: object, **_kwargs: object) -> FakeCompleted:
         return FakeCompleted()
 
-    monkeypatch.setattr("vllmctl.doctor.subprocess.run", fake_run)
+    monkeypatch.setattr("vllmops.doctor.subprocess.run", fake_run)
     result = doctor.check_vllm_version(project)
     assert result.status == "ok"
     assert result.detail == "0.7.3"

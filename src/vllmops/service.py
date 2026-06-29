@@ -15,8 +15,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from vllmctl import lifecycle
-from vllmctl.config import (
+from vllmops import lifecycle
+from vllmops.config import (
     Catalog,
     ModelConfig,
     create_default_model_config,
@@ -24,8 +24,8 @@ from vllmctl.config import (
     load_catalog,
     load_catalog_or_empty,
 )
-from vllmctl.config_errors import explain_yaml_error
-from vllmctl.project import GENERAL_PROFILE, Project, init_project, load_project
+from vllmops.config_errors import explain_yaml_error
+from vllmops.project import GENERAL_PROFILE, Project, init_project, load_project
 
 
 class ModelAlreadyExistsError(FileExistsError):
@@ -142,7 +142,7 @@ def load_dotenv(project: Project) -> dict[str, str]:
 
 # PYTHONUNBUFFERED forces Python to flush stdout/stderr line by line. Without
 # it, vLLM's output is block-buffered when redirected to a log file and the
-# TUI (or `vllmctl logs --follow`) sits frozen for many seconds at a time.
+# TUI (or `vllmops logs --follow`) sits frozen for many seconds at a time.
 _BASELINE_ENV = {"PYTHONUNBUFFERED": "1"}
 
 
@@ -211,7 +211,7 @@ def next_available_port(project: Project, config_dir: Path | None = None) -> int
     """First port at or above `defaults.port_start` not already used by a valid model.
 
     Uses the lenient entry listing so a broken sibling YAML doesn't prevent
-    picking a new port for `vllmctl create-model`.
+    picking a new port for `vllmops create-model`.
     """
     used = {
         entry.status.metrics_port
@@ -340,7 +340,7 @@ def find_model(
     Tries the conventional `<model_name>.yaml` first, then falls back to
     scanning the directory for any file whose body has the matching name.
     """
-    from vllmctl.config import load_model_file  # noqa: PLC0415
+    from vllmops.config import load_model_file  # noqa: PLC0415
 
     effective_dir = resolve_models_dir(project, config_dir)
     if not effective_dir.exists():
@@ -416,7 +416,7 @@ def list_catalog_entries(
     whole listing; it becomes a `CatalogEntry(error=...)` row. Duplicate
     names or ports also produce broken rows.
     """
-    from vllmctl.config import load_model_file  # noqa: PLC0415
+    from vllmops.config import load_model_file  # noqa: PLC0415
 
     effective_dir = resolve_models_dir(project, config_dir)
     if not effective_dir.exists():
@@ -913,7 +913,7 @@ def smoke_test_model(
     the request fails. The `model` field sent to vLLM honors `--served-model-name`
     when set in the YAML, otherwise falls back to `vllm.model`.
     """
-    from vllmctl.config import load_model_file  # noqa: PLC0415
+    from vllmops.config import load_model_file  # noqa: PLC0415
 
     entry = next(
         (e for e in list_catalog_entries(project, config_dir) if e.name == model_name),

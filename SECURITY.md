@@ -16,7 +16,7 @@ You can expect a first reply within a few business days. Fixes will be coordinat
 
 ## Scope
 
-`vllmctl` spawns local processes, reads YAML configuration from the project workspace and scrapes `/metrics` from servers it started. It does not bind network sockets itself, does not authenticate users and does not store credentials beyond what the user puts in `.env` files.
+`vllmops` spawns local processes, reads YAML configuration from the project workspace and scrapes `/metrics` from servers it started. It does not bind network sockets itself, does not authenticate users and does not store credentials beyond what the user puts in `.env` files.
 
 Out of scope for security reports:
 

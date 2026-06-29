@@ -309,7 +309,7 @@ class ModelMetricsSnapshot:
 
 
 # vLLM renamed `gpu_cache_usage_perc` to `kv_cache_usage_perc` around 0.7.
-# Probe both names so vllmctl works across a wider range of versions.
+# Probe both names so vllmops works across a wider range of versions.
 _KV_CACHE_USAGE_METRICS = (
     "vllm:kv_cache_usage_perc",
     "vllm:gpu_cache_usage_perc",

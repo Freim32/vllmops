@@ -1,4 +1,4 @@
-"""Tests for vllmctl.config (pydantic validation, catalog logic)."""
+"""Tests for vllmops.config (pydantic validation, catalog logic)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from vllmctl.config import (
+from vllmops.config import (
     Catalog,
     ModelConfig,
     VllmConfig,
@@ -183,7 +183,7 @@ def test_create_default_model_config_sets_tensor_parallel_size_to_gpu_count() ->
 
 
 def test_create_default_model_config_silences_polling_endpoints() -> None:
-    """Default args drop access log spam from vllmctl's own /health and /metrics polling."""
+    """Default args drop access log spam from vllmops's own /health and /metrics polling."""
     model = create_default_model_config(name="m", hf_model="hf/m", gpus="0", port=8001)
     silenced = model.vllm.args.get("--disable-access-log-for-endpoints")
     assert silenced is not None

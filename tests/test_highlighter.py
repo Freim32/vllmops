@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from vllmctl.tui.widgets.highlighter import highlight_log_line, strip_process_prefix
+from vllmops.tui.widgets.highlighter import highlight_log_line, strip_process_prefix
 
 
 def test_strip_process_prefix_removes_basic_prefix() -> None:

@@ -12,14 +12,14 @@ from pathlib import Path
 import pytest
 import yaml
 
-from vllmctl.project import Project, init_project, load_project
+from vllmops.project import Project, init_project, load_project
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 
 
 @pytest.fixture
 def project(tmp_path: Path) -> Project:
-    """An initialized vllmctl project rooted at tmp_path."""
+    """An initialized vllmops project rooted at tmp_path."""
     init_project(tmp_path, force=False)
     return load_project(tmp_path)
 

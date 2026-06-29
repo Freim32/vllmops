@@ -8,7 +8,7 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import ContentSwitcher, RichLog, Static
 
-from vllmctl.tui.widgets.highlighter import VllmLogHighlighter, strip_process_prefix
+from vllmops.tui.widgets.highlighter import VllmLogHighlighter, strip_process_prefix
 
 _LOG_VIEW = "log-content"
 _PLACEHOLDER_VIEW = "log-placeholder"

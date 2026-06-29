@@ -4,7 +4,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from vllmctl.project import NAME_PATTERN_STR
+from vllmops.project import NAME_PATTERN_STR
 
 SECRET_ENV_KEYS = {"HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"}
 
@@ -173,7 +173,7 @@ def create_default_model_config(
                     "--tensor-parallel-size": tensor_parallel_size_from_gpus(gpus),
                     "--dtype": "auto",
                     "--served-model-name": name,
-                    # Silence access-log spam from vllmctl's own polling
+                    # Silence access-log spam from vllmops's own polling
                     # without losing the access lines for real /v1/* requests.
                     # Edit or remove this entry if you want to see all access logs.
                     "--disable-access-log-for-endpoints": "/health,/metrics,/ping",

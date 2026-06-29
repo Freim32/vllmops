@@ -1,4 +1,4 @@
-"""Tests for vllmctl.lifecycle and the spawn-driven branches of service.
+"""Tests for vllmops.lifecycle and the spawn-driven branches of service.
 
 POSIX-only: every test in this module is skipped on Windows because
 spawn_detached uses os.killpg, signal.SIGKILL, and start_new_session.
@@ -19,9 +19,9 @@ from tests.conftest import (
     sleeper_payload,
     write_model_yaml,
 )
-from vllmctl import lifecycle, service
-from vllmctl.project import Project
-from vllmctl.service import (
+from vllmops import lifecycle, service
+from vllmops.project import Project
+from vllmops.service import (
     ModelAlreadyRunningError,
     ModelNotRunningError,
     ModelStartupFailedError,
@@ -186,8 +186,8 @@ def test_spawn_inherits_env(tmp_path: Path) -> None:
     log_path = tmp_path / "out.log"
     pid_path = tmp_path / "out.pid"
     pid = lifecycle.spawn_detached(
-        [sys.executable, "-u", "-c", "import os; print(os.environ.get('VLLMCTL_TEST_MARKER'))"],
-        env={**os.environ, "VLLMCTL_TEST_MARKER": "marker-xyz"},
+        [sys.executable, "-u", "-c", "import os; print(os.environ.get('VLLMOPS_TEST_MARKER'))"],
+        env={**os.environ, "VLLMOPS_TEST_MARKER": "marker-xyz"},
         log_path=log_path,
         pid_path=pid_path,
     )
@@ -286,7 +286,7 @@ def _set_profiles_lifecycle(project: Project, profiles: dict) -> Project:
     """Local helper to mutate config.yaml and reload."""
     import yaml as _yaml  # noqa: PLC0415
 
-    from vllmctl.project import load_project as _load_project  # noqa: PLC0415
+    from vllmops.project import load_project as _load_project  # noqa: PLC0415
 
     cfg_path = project.config_path
     raw = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))

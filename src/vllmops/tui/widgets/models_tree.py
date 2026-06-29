@@ -9,7 +9,7 @@ from rich.text import Text
 from textual.widgets import Tree
 from textual.widgets.tree import TreeNode
 
-from vllmctl.service import CatalogEntry, ProfileView
+from vllmops.service import CatalogEntry, ProfileView
 
 
 @dataclass(frozen=True)

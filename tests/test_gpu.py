@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from vllmctl.gpu import (
+from vllmops.gpu import (
     GpuSnapshot,
     gpus_for_model,
     parse_nvidia_smi_csv,
@@ -98,7 +98,7 @@ def test_query_gpus_returns_empty_when_nvidia_smi_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """If nvidia-smi isn't on PATH, query_gpus returns []. No crash, no warning."""
-    import vllmctl.gpu as gpu_mod  # noqa: PLC0415
+    import vllmops.gpu as gpu_mod  # noqa: PLC0415
 
     monkeypatch.setattr(gpu_mod.shutil, "which", lambda _: None)
     assert query_gpus() == []
@@ -108,7 +108,7 @@ def test_query_gpus_filters_by_indices(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The `indices=` filter drops GPUs whose physical index isn't asked for."""
-    import vllmctl.gpu as gpu_mod  # noqa: PLC0415
+    import vllmops.gpu as gpu_mod  # noqa: PLC0415
 
     sample_csv = (
         "0, NVIDIA A100, 50, 10000, 40960, 250, 60\n"
@@ -130,7 +130,7 @@ def test_query_gpus_filters_by_indices(
 def test_query_gpus_returns_empty_on_nonzero_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllmctl.gpu as gpu_mod  # noqa: PLC0415
+    import vllmops.gpu as gpu_mod  # noqa: PLC0415
 
     class _FakeResult:
         returncode = 9

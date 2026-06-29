@@ -7,7 +7,7 @@ import math
 import pytest
 
 from tests.conftest import MockVllmMetricsHandler
-from vllmctl.metrics import (
+from vllmops.metrics import (
     MetricsHistory,
     ModelMetricsSnapshot,
     TimeSeries,

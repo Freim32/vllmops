@@ -1,4 +1,4 @@
-"""Tests for vllmctl.project (workspace init, config loading)."""
+"""Tests for vllmops.project (workspace init, config loading)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from vllmctl.project import (
+from vllmops.project import (
     PROJECT_CONFIG,
     PROJECT_DIR,
     ProjectConfig,
@@ -87,9 +87,9 @@ def test_sanitize_project_name_handles_edge_cases() -> None:
     assert sanitize_project_name("hello") == "hello"
     assert sanitize_project_name("hello world") == "hello-world"
     assert sanitize_project_name("---weird---") == "weird"
-    assert sanitize_project_name("") == "vllmctl-project"
+    assert sanitize_project_name("") == "vllmops-project"
     assert sanitize_project_name("123abc") == "123abc"
-    assert sanitize_project_name("...") == "vllmctl-project"
+    assert sanitize_project_name("...") == "vllmops-project"
 
 
 def test_venv_executable_returns_none_when_missing(tmp_path: Path) -> None:

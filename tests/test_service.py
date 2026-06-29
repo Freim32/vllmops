@@ -1,4 +1,4 @@
-"""Tests for vllmctl.service.
+"""Tests for vllmops.service.
 
 Most tests here are platform-agnostic and run on Windows. The wait_for_ready
 tests need a real PID, but they only signal-probe (kill 0), no fork required ,
@@ -21,10 +21,10 @@ from tests.conftest import (
     sleeper_payload,
     write_model_yaml,
 )
-from vllmctl import service
-from vllmctl.config import ModelConfig, VllmConfig
-from vllmctl.project import Project
-from vllmctl.service import (
+from vllmops import service
+from vllmops.config import ModelConfig, VllmConfig
+from vllmops.project import Project
+from vllmops.service import (
     ModelNotRunningError,
     ModelStartupFailedError,
     ModelStartupTimeoutError,
@@ -504,7 +504,7 @@ def _set_profiles(project: Project, profiles: dict[str, list[str]]) -> Project:
     """Mutate the project config to add profiles, reload, return the new Project."""
     import yaml as _yaml  # noqa: PLC0415
 
-    from vllmctl.project import load_project as _load_project  # noqa: PLC0415
+    from vllmops.project import load_project as _load_project  # noqa: PLC0415
 
     cfg_path = project.config_path
     raw = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
@@ -737,7 +737,7 @@ def test_find_model_returns_none_when_missing(project: Project) -> None:
 def test_find_model_falls_back_when_filename_does_not_match_yaml_name(
     project: Project,
 ) -> None:
-    """`vllmctl create-model` produces `<name>.yaml`, but a hand-edited workspace
+    """`vllmops create-model` produces `<name>.yaml`, but a hand-edited workspace
     can have any filename, find_model should still locate the model by its
     YAML body."""
     write_model_yaml(project, "weirdfile", sleeper_payload("real-name", port=18001))
@@ -1020,7 +1020,7 @@ def test_start_model_raises_port_conflict_when_other_running(project: Project, m
     write_model_yaml(project, "b", sleeper_payload("b", port=18001))
 
     # Mark `a` as running by faking its catalog entry status.
-    from vllmctl.service import CatalogEntry, ModelStatus  # noqa: PLC0415
+    from vllmops.service import CatalogEntry, ModelStatus  # noqa: PLC0415
 
     a_paths = service.runtime_paths_for(project, "a")
     real_list = service.list_catalog_entries

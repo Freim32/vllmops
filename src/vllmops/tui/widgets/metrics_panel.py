@@ -8,8 +8,8 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Static
 
-from vllmctl.metrics import ModelMetricsSnapshot
-from vllmctl.tui.widgets._format import (
+from vllmops.metrics import ModelMetricsSnapshot
+from vllmops.tui.widgets._format import (
     format_int,
     format_percent,
     format_rate,

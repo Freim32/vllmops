@@ -11,7 +11,7 @@ from pathlib import Path
 
 def ensure_supported_platform() -> None:
     if sys.platform == "win32":
-        raise RuntimeError("vllmctl lifecycle commands require POSIX (Linux/macOS); Windows is not supported.")
+        raise RuntimeError("vllmops lifecycle commands require POSIX (Linux/macOS); Windows is not supported.")
 
 
 def is_alive(pid: int) -> bool:

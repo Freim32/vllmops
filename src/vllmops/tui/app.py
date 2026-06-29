@@ -1,4 +1,4 @@
-"""Main Textual application for vllmctl."""
+"""Main Textual application for vllmops."""
 
 from __future__ import annotations
 
@@ -17,12 +17,12 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import ContentSwitcher, Footer, Header
 
-from vllmctl import gpu as gpu_module
-from vllmctl import metrics, service
-from vllmctl.gpu import GpuSnapshot
-from vllmctl.metrics import MetricsHistory, snapshot_from_history
-from vllmctl.project import Project
-from vllmctl.tui.widgets import ErrorsPanel, GpuPanel, LogViewer, MetricsPanel, ModelsTree
+from vllmops import gpu as gpu_module
+from vllmops import metrics, service
+from vllmops.gpu import GpuSnapshot
+from vllmops.metrics import MetricsHistory, snapshot_from_history
+from vllmops.project import Project
+from vllmops.tui.widgets import ErrorsPanel, GpuPanel, LogViewer, MetricsPanel, ModelsTree
 
 STATUS_REFRESH_SECONDS = 2.0
 LOG_POLL_SECONDS = 0.5
@@ -37,7 +37,7 @@ class TuiOptions:
     theme: str = "monokai"
 
 
-class VllmctlApp(App):
+class VllmopsApp(App):
     """Three-pane TUI: models list, log tail, live metrics scraped from vLLM."""
 
     CSS = """
@@ -164,7 +164,7 @@ class VllmctlApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
-        self.title = "vllmctl"
+        self.title = "vllmops"
         self.sub_title = self._options.project.name
         self.theme = self._options.theme
         self._refresh_statuses()
@@ -233,7 +233,7 @@ class VllmctlApp(App):
 
     def _refresh_gpu_indices(self) -> None:
         """Re-derive per-model CUDA_VISIBLE_DEVICES from the current catalog."""
-        from vllmctl.config import load_model_file  # noqa: PLC0415
+        from vllmops.config import load_model_file  # noqa: PLC0415
 
         new_indices: dict[str, list[int]] = {}
         for entry in self._entries:
@@ -381,7 +381,7 @@ class VllmctlApp(App):
         editor = _resolve_editor(project.config.defaults.editor)
         if editor is None:
             self.notify(
-                "no editor available, set defaults.editor in .vllmctl/config.yaml,"
+                "no editor available, set defaults.editor in .vllmops/config.yaml,"
                 " export $EDITOR, or install nano/vim/micro",
                 severity="error",
                 timeout=6,
@@ -403,8 +403,8 @@ class VllmctlApp(App):
         # Validate only the file just edited, not the whole catalog: a broken
         # sibling YAML must not produce a misleading "your edit broke things"
         # popup when the user didn't touch it.
-        from vllmctl.config import load_model_file  # noqa: PLC0415
-        from vllmctl.config_errors import explain_yaml_error  # noqa: PLC0415
+        from vllmops.config import load_model_file  # noqa: PLC0415
+        from vllmops.config_errors import explain_yaml_error  # noqa: PLC0415
 
         try:
             load_model_file(config_path)

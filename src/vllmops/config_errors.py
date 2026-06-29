@@ -2,7 +2,7 @@
 
 Pydantic v2's `ValidationError.errors()` exposes a list of dicts with `type`,
 `loc`, `msg`, `input` keys. We map the most common `type` values to a short
-summary the user can act on, and reproduce vllmctl-specific custom-validator
+summary the user can act on, and reproduce vllmops-specific custom-validator
 messages (`vllm arg must start with '--'` etc.) when they appear.
 """
 
@@ -80,7 +80,7 @@ def _format_error_entry(err: Mapping[str, Any]) -> str:
 
 
 def _format_value_error(loc_str: str, msg: str) -> str:
-    """Strip the `Value error, ` prefix pydantic adds, reuse vllmctl wording where present."""
+    """Strip the `Value error, ` prefix pydantic adds, reuse vllmops wording where present."""
     cleaned = msg.removeprefix("Value error, ")
     if "must start with '--'" in cleaned:
         return f"`{loc_str}` must start with `--` (vllm uses GNU-style flags)"

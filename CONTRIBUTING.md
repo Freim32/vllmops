@@ -5,8 +5,8 @@ Thanks for stopping by. The project is young and small, contributions of any siz
 ## Local setup
 
 ```bash
-git clone https://github.com/Freim32/vllmctl
-cd vllmctl
+git clone https://github.com/Freim32/vllmops
+cd vllmops
 uv sync --extra dev
 ```
 

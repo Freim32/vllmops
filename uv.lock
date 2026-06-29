@@ -763,8 +763,8 @@ wheels = [
 ]
 
 [[package]]
-name = "vllmctl"
-version = "0.2.0"
+name = "vllmops"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },

@@ -1,6 +1,6 @@
 [project]
-name = "vllmctl"
-version = "0.3.0"
+name = "vllmops"
+version = "0.4.0"
 description = "Declarative control plane and TUI for bare-metal vLLM servers."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -36,9 +36,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Freim32/vllmctl"
-Repository = "https://github.com/Freim32/vllmctl"
-Issues = "https://github.com/Freim32/vllmctl/issues"
+Homepage = "https://github.com/Freim32/vllmops"
+Repository = "https://github.com/Freim32/vllmops"
+Issues = "https://github.com/Freim32/vllmops/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -51,7 +51,7 @@ dev = [
 ]
 
 [project.scripts]
-vllmctl = "vllmctl.cli:app"
+vllmops = "vllmops.cli:app"
 
 [tool.poe.tasks]
 lint-fix = "uv run --extra dev ruff check --fix"
@@ -72,7 +72,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/vllmctl"]
+packages = ["src/vllmops"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/vllmctl/py.typed" = "vllmctl/py.typed"
+"src/vllmops/py.typed" = "vllmops/py.typed"

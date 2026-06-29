@@ -14,7 +14,7 @@ body:
     id: doctor
     attributes:
       label: Doctor output (optional but helpful)
-      description: Output of `vllmctl doctor`. Skip if it does not apply.
+      description: Output of `vllmops doctor`. Skip if it does not apply.
       render: shell
 
   - type: textarea
@@ -26,5 +26,5 @@ body:
   - type: input
     id: version
     attributes:
-      label: vllmctl version / OS
+      label: vllmops version / OS
       placeholder: "0.3.0, Ubuntu 22.04, Python 3.11"

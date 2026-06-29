@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from vllmctl.tui.app import _resolve_editor
+from vllmops.tui.app import _resolve_editor
 
 
 @pytest.fixture

@@ -6,7 +6,7 @@ import pytest
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from vllmctl.config_errors import explain_yaml_error
+from vllmops.config_errors import explain_yaml_error
 
 # --- minimal pydantic models for isolated testing ---------------------------------
 
@@ -70,7 +70,7 @@ def test_explain_int_parsing() -> None:
 
 
 def test_explain_value_error_dash_prefix() -> None:
-    """vllmctl-specific custom validator message is recognized."""
+    """vllmops-specific custom validator message is recognized."""
     exc = _raise({"name": "ok", "inner": {"model": "m", "args": {"port": 1}}})
     explanation = explain_yaml_error(exc)
     assert "must start with `--`" in explanation.summary
@@ -125,7 +125,7 @@ def test_explain_unknown_exception_with_empty_message() -> None:
     ],
 )
 def test_explain_value_error_known_phrases(reason: str, expected_phrase: str) -> None:
-    """The value_error mapper recognizes vllmctl-specific custom messages."""
+    """The value_error mapper recognizes vllmops-specific custom messages."""
 
     class _Model(BaseModel):
         @field_validator("__class__", mode="before", check_fields=False)

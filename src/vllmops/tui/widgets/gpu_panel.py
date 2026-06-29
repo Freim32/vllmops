@@ -8,8 +8,8 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Static
 
-from vllmctl.gpu import GpuSnapshot
-from vllmctl.tui.widgets._format import (
+from vllmops.gpu import GpuSnapshot
+from vllmops.tui.widgets._format import (
     format_celsius,
     format_device_list,
     format_gpu_memory,

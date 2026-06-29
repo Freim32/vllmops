@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-PROJECT_DIR = ".vllmctl"
+PROJECT_DIR = ".vllmops"
 PROJECT_CONFIG = "config.yaml"
 DEFAULT_PYTHON_VERSION = "3.10"
 NAME_PATTERN_STR = r"^[A-Za-z0-9][A-Za-z0-9_.-]*$"
@@ -17,7 +17,7 @@ HF_TOKEN=
 HUGGING_FACE_HUB_TOKEN=
 """
 
-GITIGNORE_TEMPLATE = """# vllmctl runtime artifacts (PIDs, logs, internal state)
+GITIGNORE_TEMPLATE = """# vllmops runtime artifacts (PIDs, logs, internal state)
 runtime/
 
 # HuggingFace cache and locally-downloaded model weights
@@ -34,7 +34,7 @@ data/
 PYPROJECT_TEMPLATE = """[project]
 name = "{name}"
 version = "0.1.0"
-description = "vllmctl-managed vLLM workspace"
+description = "vllmops-managed vLLM workspace"
 requires-python = ">={python_version}"
 dependencies = [
     "vllm>=0.6",
@@ -53,7 +53,7 @@ def sanitize_project_name(folder_name: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", folder_name)
     cleaned = re.sub(r"-+", "-", cleaned).strip("-_.")
     if not cleaned or not cleaned[0].isalnum():
-        return "vllmctl-project"
+        return "vllmops-project"
     return cleaned
 
 
@@ -76,7 +76,7 @@ class ProjectDefaults(BaseModel):
     log_level: str = "INFO"
     editor: str | None = Field(
         default=None,
-        description="Editor command for `vllmctl tui` 'e' binding. Overrides $VISUAL / $EDITOR.",
+        description="Editor command for `vllmops tui` 'e' binding. Overrides $VISUAL / $EDITOR.",
     )
 
 

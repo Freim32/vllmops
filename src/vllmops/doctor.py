@@ -1,4 +1,4 @@
-"""Read-only environment diagnostic for the local vllmctl setup."""
+"""Read-only environment diagnostic for the local vllmops setup."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from vllmctl import gpu as gpu_module
-from vllmctl import service
-from vllmctl.config import load_model_file
-from vllmctl.project import Project, find_project_root, load_project
+from vllmops import gpu as gpu_module
+from vllmops import service
+from vllmops.config import load_model_file
+from vllmops.project import Project, find_project_root, load_project
 
 Status = Literal["ok", "warn", "fail"]
 
@@ -79,8 +79,8 @@ def check_project_root() -> CheckResult:
         return CheckResult(
             "Project root",
             "fail",
-            "no .vllmctl/config.yaml found in current dir or any parent",
-            hint="run `vllmctl init` to create a project workspace",
+            "no .vllmops/config.yaml found in current dir or any parent",
+            hint="run `vllmops init` to create a project workspace",
         )
     return CheckResult("Project root", "ok", str(root))
 
@@ -188,7 +188,7 @@ def check_catalog(project: Project) -> CheckResult:
             "Catalog",
             "warn",
             "no models declared yet",
-            hint="`vllmctl create-model` to add one",
+            hint="`vllmops create-model` to add one",
         )
     broken = [e for e in entries if e.is_broken]
     if broken:
@@ -198,7 +198,7 @@ def check_catalog(project: Project) -> CheckResult:
             "Catalog",
             "warn",
             f"{len(entries)} model(s), {len(broken)} broken: {names}{more}",
-            hint="`vllmctl validate` for details",
+            hint="`vllmops validate` for details",
         )
     return CheckResult("Catalog", "ok", f"{len(entries)} model(s) valid")
 
@@ -276,7 +276,7 @@ def run_checks(project: Project | None = None) -> list[CheckResult]:
                     "Project config",
                     "fail",
                     f"could not load: {exc}",
-                    hint="check .vllmctl/config.yaml syntax",
+                    hint="check .vllmops/config.yaml syntax",
                 )
             )
             return results
