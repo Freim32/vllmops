@@ -142,7 +142,8 @@ def rotate_log_file(log_path: Path) -> Path | None:
 def _signal_group_or_pid(pid: int, sig: int) -> bool:
     """Send a signal to the process group, falling back to the pid alone."""
     try:
-        os.killpg(pid, sig)  # type: ignore[attr-defined]
+        # POSIX-only in typeshed: the ignore is needed on Windows, unused on Linux.
+        os.killpg(pid, sig)  # type: ignore[attr-defined, unused-ignore]
         return True
     except ProcessLookupError:
         return False
@@ -171,7 +172,7 @@ def terminate(pid: int, timeout: float = 30.0) -> bool:
             return True
         time.sleep(0.2)
 
-    _signal_group_or_pid(pid, signal.SIGKILL)  # type: ignore[attr-defined]
+    _signal_group_or_pid(pid, signal.SIGKILL)  # type: ignore[attr-defined, unused-ignore]
 
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
