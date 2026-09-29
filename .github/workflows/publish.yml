@@ -11,6 +11,9 @@ jobs:
   build:
     name: Build sdist and wheel
     runs-on: ubuntu-latest
+    # Only version tags reach an index. The nightly workflow's own release does
+    # not trigger this one, but a `nightly` prerelease recreated by hand would.
+    if: startsWith(github.event.release.tag_name, 'v')
     outputs:
       target: ${{ steps.target.outputs.target }}
     steps:
