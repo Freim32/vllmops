@@ -1,12 +1,14 @@
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 PROJECT_DIR = ".vllmops"
 PROJECT_CONFIG = "config.yaml"
+PROXY_OVERLAY = "litellm.yaml"
 DEFAULT_PYTHON_VERSION = "3.10"
 NAME_PATTERN_STR = r"^[A-Za-z0-9][A-Za-z0-9_.-]*$"
 NAME_PATTERN = re.compile(NAME_PATTERN_STR)
@@ -15,6 +17,9 @@ GENERAL_PROFILE = "general"
 ENV_EXAMPLE = """# HuggingFace authentication. Required for gated models (Llama, Gemma, ...).
 HF_TOKEN=
 HUGGING_FACE_HUB_TOKEN=
+
+# Set to require an API key on the LiteLLM gateway.
+LITELLM_MASTER_KEY=
 """
 
 GITIGNORE_TEMPLATE = """# vllmops runtime artifacts (PIDs, logs, internal state)
@@ -80,6 +85,37 @@ class ProjectDefaults(BaseModel):
     )
 
 
+class ProxyConfig(BaseModel):
+    """The whole shape of the LiteLLM gateway: no command-line override exists.
+
+    A running gateway regenerates its config from this section on every catalog
+    change, so an automatic restart has to be indistinguishable from a manual
+    one. That only holds while this file is the single source of its shape.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # LiteLLM's own default is 0.0.0.0. The gateway is the front door to every
+    # model, so it binds to loopback unless the user opts into exposing it.
+    host: str = "127.0.0.1"
+    port: int = Field(default=4000, ge=1, le=65535)
+    upstream_host: str = Field(
+        default="127.0.0.1",
+        description="Host used in each model's api_base. Models usually bind 0.0.0.0.",
+    )
+    executable: str = "litellm"
+    profile: str | None = Field(
+        default=None,
+        description="Only expose models in this profile. None routes the whole catalog.",
+    )
+    expose: Literal["running", "all"] = Field(
+        default="running",
+        description="Which models reach the gateway: only the running ones, or the whole selection.",
+    )
+    num_workers: int = Field(default=1, ge=1, description="LiteLLM worker processes.")
+    detailed_debug: bool = Field(default=False, description="Verbose LiteLLM request logging.")
+
+
 class ProjectConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -91,6 +127,7 @@ class ProjectConfig(BaseModel):
     )
     paths: ProjectPaths = Field(default_factory=ProjectPaths)
     defaults: ProjectDefaults = Field(default_factory=ProjectDefaults)
+    proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     profiles: dict[str, list[str]] = Field(
         default_factory=dict,
         description=(
@@ -129,6 +166,11 @@ class Project:
     @property
     def config_path(self) -> Path:
         return self.root / PROJECT_DIR / PROJECT_CONFIG
+
+    @property
+    def proxy_overlay_path(self) -> Path:
+        """Optional hand-written LiteLLM settings merged into the generated proxy config."""
+        return self.root / PROJECT_DIR / PROXY_OVERLAY
 
     @property
     def models_dir(self) -> Path:

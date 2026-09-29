@@ -1,5 +1,6 @@
 """POSIX process primitives for managing bare-metal vLLM processes."""
 
+import ctypes
 import errno
 import os
 import signal
@@ -8,10 +9,37 @@ import sys
 import time
 from pathlib import Path
 
+_WIN32_QUERY_LIMITED_INFORMATION = 0x1000
+_WIN32_ERROR_ACCESS_DENIED = 5
+_WIN32_STILL_ACTIVE = 259
+
 
 def ensure_supported_platform() -> None:
     if sys.platform == "win32":
         raise RuntimeError("vllmops lifecycle commands require POSIX (Linux/macOS); Windows is not supported.")
+
+
+def _win32_pid_exists(pid: int) -> bool:
+    """Ask the kernel for a handle on the process.
+
+    Windows numbers CTRL_C_EVENT as signal 0, so `os.kill(pid, 0)` there does not
+    probe anything: it sends a console interrupt to that process group, and a
+    caller asking about its own PID gets a KeyboardInterrupt of its own.
+    """
+    if sys.platform != "win32":  # keeps the calls below out of the POSIX type view
+        return False
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(_WIN32_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        # A process we are not allowed to query is still a process.
+        return ctypes.get_last_error() == _WIN32_ERROR_ACCESS_DENIED
+    try:
+        exit_code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return True
+        return exit_code.value == _WIN32_STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def is_alive(pid: int) -> bool:
@@ -24,15 +52,17 @@ def is_alive(pid: int) -> bool:
     if pid <= 0:
         return False
 
-    if sys.platform != "win32":
-        try:
-            reaped_pid, _ = os.waitpid(pid, os.WNOHANG)  # type: ignore[attr-defined]
-            if reaped_pid == pid:
-                return False
-        except ChildProcessError:
-            pass
-        except OSError:
-            pass
+    if sys.platform == "win32":
+        return _win32_pid_exists(pid)
+
+    try:
+        reaped_pid, _ = os.waitpid(pid, os.WNOHANG)
+        if reaped_pid == pid:
+            return False
+    except ChildProcessError:
+        pass
+    except OSError:
+        pass
 
     try:
         os.kill(pid, 0)

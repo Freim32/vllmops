@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import shutil
+import subprocess
 
 import pytest
 
@@ -98,9 +100,7 @@ def test_query_gpus_returns_empty_when_nvidia_smi_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """If nvidia-smi isn't on PATH, query_gpus returns []. No crash, no warning."""
-    import vllmops.gpu as gpu_mod  # noqa: PLC0415
-
-    monkeypatch.setattr(gpu_mod.shutil, "which", lambda _: None)
+    monkeypatch.setattr(shutil, "which", lambda _: None)
     assert query_gpus() == []
 
 
@@ -108,8 +108,6 @@ def test_query_gpus_filters_by_indices(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The `indices=` filter drops GPUs whose physical index isn't asked for."""
-    import vllmops.gpu as gpu_mod  # noqa: PLC0415
-
     sample_csv = (
         "0, NVIDIA A100, 50, 10000, 40960, 250, 60\n"
         "1, NVIDIA A100, 80, 30000, 40960, 320, 75\n"
@@ -120,8 +118,8 @@ def test_query_gpus_filters_by_indices(
         returncode = 0
         stdout = sample_csv
 
-    monkeypatch.setattr(gpu_mod.shutil, "which", lambda _: "/usr/bin/nvidia-smi")
-    monkeypatch.setattr(gpu_mod.subprocess, "run", lambda *a, **kw: _FakeResult())
+    monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/nvidia-smi")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _FakeResult())
 
     snaps = query_gpus(indices=[0, 2])
     assert {s.index for s in snaps} == {0, 2}
@@ -130,14 +128,12 @@ def test_query_gpus_filters_by_indices(
 def test_query_gpus_returns_empty_on_nonzero_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllmops.gpu as gpu_mod  # noqa: PLC0415
-
     class _FakeResult:
         returncode = 9
         stdout = ""
 
-    monkeypatch.setattr(gpu_mod.shutil, "which", lambda _: "/usr/bin/nvidia-smi")
-    monkeypatch.setattr(gpu_mod.subprocess, "run", lambda *a, **kw: _FakeResult())
+    monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/nvidia-smi")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _FakeResult())
 
     assert query_gpus() == []
 

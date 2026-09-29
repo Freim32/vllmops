@@ -877,7 +877,7 @@ class SmokeTestResult:
     latency_seconds: float
 
 
-def _resolve_served_name(model_cfg: ModelConfig) -> str:
+def resolve_served_name(model_cfg: ModelConfig) -> str:
     """Resolve the name vLLM will serve under for /v1 routes.
 
     Honors `--served-model-name` if present in `args` (dict) or `extra_args`
@@ -929,7 +929,7 @@ def smoke_test_model(
         raise SmokeTestError(f"{model_name} has no metrics_port configured")
 
     try:
-        served = _resolve_served_name(load_model_file(entry.yaml_path))
+        served = resolve_served_name(load_model_file(entry.yaml_path))
     except Exception as exc:
         raise SmokeTestError(f"could not read YAML: {exc}") from exc
 
@@ -1022,7 +1022,8 @@ def probe_health(url: str, timeout: float = 1.5) -> bool:
     """Return True when the URL responds with 2xx, False on any other outcome."""
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310 (local URL)
-            return 200 <= response.status < 300
+            status: int = response.status
+            return 200 <= status < 300
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
         return False
 

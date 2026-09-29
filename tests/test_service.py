@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -21,9 +22,9 @@ from tests.conftest import (
     sleeper_payload,
     write_model_yaml,
 )
-from vllmops import service
+from vllmops import lifecycle, service
 from vllmops.config import ModelConfig, VllmConfig
-from vllmops.project import Project
+from vllmops.project import GENERAL_PROFILE, Project
 from vllmops.service import (
     ModelNotRunningError,
     ModelStartupFailedError,
@@ -194,10 +195,7 @@ def test_status_no_pid_file_reports_stopped(project: Project) -> None:
     assert status.stale_pid_file is False
 
 
-@posix_only
 def test_status_stale_pid_detected(project: Project) -> None:
-    """is_alive() relies on POSIX `kill(pid, 0)` semantics; Windows can't reliably
-    distinguish a non-existent PID from a permission error."""
     paths = service.runtime_paths_for(project, "ghost")
     paths.pid_path.parent.mkdir(parents=True, exist_ok=True)
     paths.pid_path.write_text("99999999")
@@ -386,7 +384,7 @@ def test_can_stop_broken_with_live_pid(project: Project, monkeypatch: pytest.Mon
     paths.pid_path.parent.mkdir(parents=True, exist_ok=True)
     paths.pid_path.write_text("12345", encoding="utf-8")
 
-    monkeypatch.setattr(service.lifecycle, "is_alive", lambda pid: pid == 12345)
+    monkeypatch.setattr(lifecycle, "is_alive", lambda pid: pid == 12345)
 
     broken_entry = next(e for e in service.list_catalog_entries(project) if e.name == "broken")
     assert broken_entry.is_broken
@@ -411,7 +409,7 @@ def test_can_stop_broken_with_dead_pid(project: Project, monkeypatch: pytest.Mon
     paths.pid_path.parent.mkdir(parents=True, exist_ok=True)
     paths.pid_path.write_text("99999", encoding="utf-8")
 
-    monkeypatch.setattr(service.lifecycle, "is_alive", lambda pid: False)
+    monkeypatch.setattr(lifecycle, "is_alive", lambda pid: False)
 
     broken_entry = next(e for e in service.list_catalog_entries(project) if e.name == "broken")
     assert service.can_stop(project, broken_entry) is False
@@ -675,8 +673,8 @@ def test_start_profile_general_works_without_declaration(project: Project) -> No
     """The synthetic 'general' profile must accept bulk operations even
     though it's never declared in config."""
     write_model_yaml(project, "a", sleeper_payload("a", port=18001))
-    result = service.start_profile(project, service.GENERAL_PROFILE)
-    assert result.profile == service.GENERAL_PROFILE
+    result = service.start_profile(project, GENERAL_PROFILE)
+    assert result.profile == GENERAL_PROFILE
     # On non-POSIX, the start will fail; what matters is the routing reaches it.
     assert result.total == 1
 
@@ -840,9 +838,7 @@ def test_wait_for_ready_no_pid_file_raises(project: Project) -> None:
         wait_for_ready(project, "m", timeout=1.0)
 
 
-@posix_only
 def test_wait_for_ready_dead_pid_raises_startup_failed(project: Project) -> None:
-    """Relies on POSIX kill(pid, 0) semantics to detect a non-existent PID."""
     write_model_yaml(project, "m", sleeper_payload("m", port=18001))
     paths = service.runtime_paths_for(project, "m")
     paths.pid_path.parent.mkdir(parents=True, exist_ok=True)
@@ -958,8 +954,8 @@ def test_fast_exit_payload_is_valid_yaml(project: Project) -> None:
 # --- smoke_test_model ---
 
 
-def _make_model_cfg(args: dict | None = None, extra: list[str] | None = None) -> ModelConfig:
-    """Tiny ModelConfig builder for _resolve_served_name unit tests."""
+def _make_model_cfg(args: dict[str, Any] | None = None, extra: list[str] | None = None) -> ModelConfig:
+    """Tiny ModelConfig builder for resolve_served_name unit tests."""
     return ModelConfig(
         name="x",
         vllm=VllmConfig(
@@ -972,27 +968,27 @@ def _make_model_cfg(args: dict | None = None, extra: list[str] | None = None) ->
 
 def test_resolve_served_name_falls_back_to_vllm_model() -> None:
     cfg = _make_model_cfg()
-    assert service._resolve_served_name(cfg) == "hf/foo"
+    assert service.resolve_served_name(cfg) == "hf/foo"
 
 
 def test_resolve_served_name_honors_args_dict() -> None:
     cfg = _make_model_cfg(args={"--served-model-name": "alias"})
-    assert service._resolve_served_name(cfg) == "alias"
+    assert service.resolve_served_name(cfg) == "alias"
 
 
 def test_resolve_served_name_takes_first_when_list() -> None:
     cfg = _make_model_cfg(args={"--served-model-name": ["primary", "alt"]})
-    assert service._resolve_served_name(cfg) == "primary"
+    assert service.resolve_served_name(cfg) == "primary"
 
 
 def test_resolve_served_name_honors_extra_args() -> None:
     cfg = _make_model_cfg(extra=["--served-model-name", "from-extra"])
-    assert service._resolve_served_name(cfg) == "from-extra"
+    assert service.resolve_served_name(cfg) == "from-extra"
 
 
 def test_resolve_served_name_extra_args_without_value_falls_back() -> None:
     cfg = _make_model_cfg(extra=["--served-model-name"])
-    assert service._resolve_served_name(cfg) == "hf/foo"
+    assert service.resolve_served_name(cfg) == "hf/foo"
 
 
 @posix_only

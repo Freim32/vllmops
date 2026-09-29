@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 from vllmops import gpu as gpu_module
+from vllmops import proxy as proxy_module
 from vllmops import service
 from vllmops.config import load_model_file
 from vllmops.project import Project, find_project_root, load_project
@@ -145,6 +146,22 @@ def check_vllm_version(project: Project) -> CheckResult:
     return CheckResult("vllm version", "ok", version)
 
 
+def check_litellm(project: Project) -> CheckResult:
+    """Warn, never fail: litellm is only needed by `vllmops proxy`."""
+    executable = proxy_module.resolve_litellm_executable(project)
+    try:
+        proxy_module.check_litellm_available(project, executable)
+    except proxy_module.LitellmExecutableNotFoundError:
+        return CheckResult(
+            "litellm executable",
+            "warn",
+            "not found in .venv or on PATH",
+            hint="needed only for `vllmops proxy`: run `uv add 'litellm[proxy]'` in the project",
+        )
+    resolved = executable if Path(executable).is_absolute() else (shutil.which(executable) or executable)
+    return CheckResult("litellm executable", "ok", resolved)
+
+
 def check_hf_token(project: Project) -> CheckResult:
     if os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN"):
         return CheckResult("HF_TOKEN", "ok", "set in shell")
@@ -208,7 +225,9 @@ def check_port_conflicts(project: Project) -> CheckResult:
         entries = service.list_catalog_entries(project)
     except Exception:
         return CheckResult("Port conflicts", "warn", "could not read catalog")
-    by_port: dict[int, list[str]] = {}
+    # The gateway holds its port for as long as it runs, so a model declaring that
+    # same port collides with it and not only with another model.
+    by_port: dict[int, list[str]] = {project.config.proxy.port: ["litellm proxy"]}
     for entry in entries:
         if entry.is_broken or entry.status is None or entry.status.metrics_port is None:
             continue
@@ -220,7 +239,7 @@ def check_port_conflicts(project: Project) -> CheckResult:
             "Port conflicts",
             "warn",
             items,
-            hint="only an issue if those models run concurrently",
+            hint="only an issue if those run at the same time",
         )
     return CheckResult("Port conflicts", "ok", "no duplicates")
 
@@ -286,6 +305,7 @@ def run_checks(project: Project | None = None) -> list[CheckResult]:
             check_venv(project),
             check_vllm_executable(project),
             check_vllm_version(project),
+            check_litellm(project),
             check_hf_token(project),
             check_runtime_writable(project),
             check_catalog(project),

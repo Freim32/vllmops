@@ -4,7 +4,7 @@ from vllmops.tui.widgets.errors_panel import ErrorsPanel
 from vllmops.tui.widgets.gpu_panel import GpuPanel
 from vllmops.tui.widgets.log_viewer import LogViewer
 from vllmops.tui.widgets.metrics_panel import MetricsPanel
-from vllmops.tui.widgets.models_tree import ModelsTree
+from vllmops.tui.widgets.models_tree import ModelsTree, NodeData
 
 __all__ = [
     "ErrorsPanel",
@@ -12,4 +12,5 @@ __all__ = [
     "LogViewer",
     "MetricsPanel",
     "ModelsTree",
+    "NodeData",
 ]

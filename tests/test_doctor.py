@@ -86,6 +86,27 @@ def test_check_vllm_version_filters_log_prefixed_lines(project: Project, monkeyp
     assert result.detail == "0.7.3"
 
 
+def test_check_litellm_warns_when_missing(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Missing litellm is a warning, never a failure: only `vllmops proxy` needs it."""
+    monkeypatch.setattr("vllmops.doctor.proxy_module.resolve_litellm_executable", lambda _p: "litellm-does-not-exist")
+    result = doctor.check_litellm(project)
+    assert result.status == "warn"
+    assert result.hint is not None
+    assert "litellm[proxy]" in result.hint
+
+
+def test_check_litellm_ok_when_present_in_venv(project: Project) -> None:
+    if sys.platform == "win32":
+        fake = project.root / ".venv" / "Scripts" / "litellm.exe"
+    else:
+        fake = project.root / ".venv" / "bin" / "litellm"
+    fake.parent.mkdir(parents=True, exist_ok=True)
+    fake.write_text("#!/bin/sh\nexit 0\n")
+    result = doctor.check_litellm(project)
+    assert result.status == "ok"
+    assert result.detail == str(fake)
+
+
 def test_check_hf_token_from_shell_env(monkeypatch: pytest.MonkeyPatch, project: Project) -> None:
     monkeypatch.setenv("HF_TOKEN", "hf_xxxxx")
     result = doctor.check_hf_token(project)
@@ -149,6 +170,17 @@ def test_check_port_conflicts_warns_on_duplicates(project: Project) -> None:
     assert "a" in result.detail and "b" in result.detail
 
 
+def test_check_port_conflicts_warns_on_gateway_port(project: Project) -> None:
+    """A model on the gateway's port collides with it, even with no other model around."""
+    gateway_port = project.config.proxy.port
+    write_model_yaml(project, "a", sleeper_payload("a", port=gateway_port))
+    result = doctor.check_port_conflicts(project)
+    assert result.status == "warn"
+    assert str(gateway_port) in result.detail
+    assert "litellm proxy" in result.detail
+    assert "a" in result.detail
+
+
 def test_check_runtime_writable_warns_when_missing(project: Project) -> None:
     """runtime/ is created on first model start; absence is a warning, not a fail."""
     shutil.rmtree(project.root / "runtime", ignore_errors=True)
@@ -203,6 +235,7 @@ def test_run_checks_full_pipeline(monkeypatch: pytest.MonkeyPatch, project: Proj
         "Project root",
         ".venv directory",
         "vllm executable",
+        "litellm executable",
         "HF_TOKEN",
         "Catalog",
         "Port conflicts",

@@ -18,11 +18,11 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import ContentSwitcher, Footer, Header
 
 from vllmops import gpu as gpu_module
-from vllmops import metrics, service
+from vllmops import metrics, proxy, service
 from vllmops.gpu import GpuSnapshot
 from vllmops.metrics import MetricsHistory, snapshot_from_history
 from vllmops.project import Project
-from vllmops.tui.widgets import ErrorsPanel, GpuPanel, LogViewer, MetricsPanel, ModelsTree
+from vllmops.tui.widgets import ErrorsPanel, GpuPanel, LogViewer, MetricsPanel, ModelsTree, NodeData
 
 STATUS_REFRESH_SECONDS = 2.0
 LOG_POLL_SECONDS = 0.5
@@ -37,7 +37,7 @@ class TuiOptions:
     theme: str = "monokai"
 
 
-class VllmopsApp(App):
+class VllmopsApp(App[None]):
     """Three-pane TUI: models list, log tail, live metrics scraped from vLLM."""
 
     CSS = """
@@ -148,6 +148,9 @@ class VllmopsApp(App):
         self._profile_views: list[service.ProfileView] = []
         self._gpu_snapshots: list[GpuSnapshot] = []
         self._gpu_indices: dict[str, list[int]] = {}
+        self._proxy_status: proxy.ProxyStatus | None = None
+        self._proxy_refreshing = False
+        self._proxy_dirty = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -173,6 +176,21 @@ class VllmopsApp(App):
         self.set_interval(METRICS_SCRAPE_SECONDS, self._scrape_all_async)
         self.run_worker(self._scrape_all(), exclusive=False)
 
+    def _proxy_segment(self) -> str | None:
+        """Gateway state for the header, or None when this project never used it.
+
+        The Header subtitle is plain text, so state travels as a glyph, with the
+        same vocabulary as the sidebar: ● up, ▴ up but config out of date, ◌ down.
+        """
+        status = self._proxy_status
+        if status is None:
+            return None
+        if status.running:
+            return f"proxy {'▴' if status.drifted else '●'} :{status.port}"
+        if status.stale_pid_file or status.config_path.is_file():
+            return "proxy ◌"
+        return None
+
     def _update_header_subtitle(self) -> None:
         """Header now shows project + counts of running/stopped/invalid models."""
         running = stopped = invalid = 0
@@ -192,6 +210,9 @@ class VllmopsApp(App):
             parts.append(f"{invalid} invalid")
         if running == 0 and stopped == 0 and invalid == 0:
             parts.append("no models")
+        proxy_segment = self._proxy_segment()
+        if proxy_segment is not None:
+            parts.append(proxy_segment)
         self.sub_title = " · ".join(parts)
 
     # --- helpers ---
@@ -219,11 +240,77 @@ class VllmopsApp(App):
         self._profile_views = views
         self._entries = [entry for view in views for entry in view.entries]
         self._refresh_gpu_indices()
+        self._refresh_proxy_status()
         self._models.render_profiles(views)
         self._update_header_subtitle()
         self._sync_log_attachment()
         self._render_metrics_panel()
         self.refresh_bindings()
+        self._maybe_refresh_proxy()
+
+    def _unique_entries(self) -> list[service.CatalogEntry]:
+        """`self._entries` is flattened per profile, so a shared model appears twice."""
+        seen: set[str] = set()
+        unique: list[service.CatalogEntry] = []
+        for entry in self._entries:
+            if entry.name in seen:
+                continue
+            seen.add(entry.name)
+            unique.append(entry)
+        return unique
+
+    def _refresh_proxy_status(self) -> None:
+        """Read gateway state, reusing the catalog this tick already loaded."""
+        project = self._options.project
+        try:
+            options = proxy.config_options(project)
+            self._proxy_status = proxy.proxy_status(project, options, entries=self._unique_entries())
+        except Exception:
+            # The header hint is not worth an error toast every two seconds;
+            # `vllmops proxy status` reports the actual failure.
+            self._proxy_status = None
+
+    def _maybe_refresh_proxy(self) -> None:
+        """Respawn the gateway when an action from here moved the catalog under it.
+
+        Gated on the flag the `_do_*` handlers raise, not on the tick: a model
+        that dies on its own leaves the config alone on purpose, and shows up as
+        `proxy ▴` in the header instead.
+        """
+        if not self._proxy_dirty or self._proxy_refreshing:
+            return
+        status = self._proxy_status
+        if status is None or not status.running:
+            self._proxy_dirty = False
+            return
+        self._proxy_dirty = False
+        self._proxy_refreshing = True
+        self.run_worker(self._refresh_proxy(), exclusive=False)
+
+    async def _refresh_proxy(self) -> None:
+        entries = self._unique_entries()
+        try:
+            refresh = await asyncio.to_thread(proxy.refresh_proxy, self._options.project, entries=entries)
+        except Exception as exc:
+            self.notify(f"proxy refresh failed: {exc}", severity="error", timeout=6, markup=False)
+            return
+        finally:
+            self._proxy_refreshing = False
+
+        if refresh is None:
+            return
+        if refresh.action == "no-models":
+            self.notify(
+                "no model qualifies: the gateway keeps serving its current config",
+                severity="warning",
+                timeout=5,
+                markup=False,
+            )
+            return
+        if refresh.action != "restarted":
+            return
+        routed = ", ".join(model.name for model in refresh.models)
+        self.notify(f"proxy restarted pid={refresh.pid}: {routed}", timeout=4, markup=False)
 
     def _poll_logs(self) -> None:
         """LogViewer poll plus a footer refresh so `c` (copy logs) tracks the
@@ -341,7 +428,7 @@ class VllmopsApp(App):
     # --- table selection events ---
 
     @on(ModelsTree.NodeHighlighted)
-    def _on_node_highlighted(self, event: ModelsTree.NodeHighlighted) -> None:
+    def _on_node_highlighted(self, event: ModelsTree.NodeHighlighted[NodeData]) -> None:
         del event
         self._sync_log_attachment()
         self._render_metrics_panel()
@@ -552,6 +639,7 @@ class VllmopsApp(App):
             self.notify(f"start failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
             self._busy = False
+            self._proxy_dirty = True
             self._refresh_statuses()
 
     async def _do_stop(self, name: str, label: str) -> None:
@@ -562,6 +650,7 @@ class VllmopsApp(App):
             self.notify(f"stop failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
             self._busy = False
+            self._proxy_dirty = True
             self._histories.pop(name, None)
             self._refresh_statuses()
 
@@ -573,6 +662,7 @@ class VllmopsApp(App):
             self.notify(f"restart failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
             self._busy = False
+            self._proxy_dirty = True
             self._histories.pop(name, None)
             self._refresh_statuses()
 
@@ -585,6 +675,7 @@ class VllmopsApp(App):
             self.notify(f"profile start failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
             self._busy = False
+            self._proxy_dirty = True
             self._refresh_statuses()
 
     async def _do_stop_profile(self, profile: str, label: str) -> None:
@@ -598,6 +689,7 @@ class VllmopsApp(App):
             self.notify(f"profile stop failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
             self._busy = False
+            self._proxy_dirty = True
             self._refresh_statuses()
 
     async def _do_restart_profile(self, profile: str, label: str) -> None:
@@ -611,6 +703,7 @@ class VllmopsApp(App):
             self.notify(f"profile restart failed: {exc}", severity="error", timeout=5, markup=False)
         finally:
             self._busy = False
+            self._proxy_dirty = True
             self._refresh_statuses()
 
     def _notify_bulk(self, result: service.BulkResult) -> None:

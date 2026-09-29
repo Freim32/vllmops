@@ -282,7 +282,7 @@ def test_wait_for_ready_detects_real_process_death(project: Project) -> None:
 # --- bulk profile operations: real spawns in parallel ---
 
 
-def _set_profiles_lifecycle(project: Project, profiles: dict) -> Project:
+def _set_profiles_lifecycle(project: Project, profiles: dict[str, list[str]]) -> Project:
     """Local helper to mutate config.yaml and reload."""
     import yaml as _yaml  # noqa: PLC0415
 

@@ -16,11 +16,13 @@ uv sync --extra dev
 uv run poe checks
 ```
 
-This runs `ruff format`, `ruff check`, `mypy` and `pytest`. CI runs the same on Python 3.10, 3.11 and 3.12.
+This runs `ruff format`, `ruff check`, `mypy`, `pyright` and `pytest`. CI runs the same on Python
+3.10 through 3.14. For a coverage report, `uv run poe cov`.
 
 ## A few light conventions
 
-- mypy strict, including the test suite.
+- mypy strict and pyright standard, both over `src` and the test suite. `pyrightconfig.json` is what
+  Pylance reads too, so the editor shows the same diagnostics as the terminal.
 - Keep comments to the WHY, not the WHAT.
 - Look at `git log` for the commit message shape.
 
