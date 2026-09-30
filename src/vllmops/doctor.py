@@ -156,7 +156,7 @@ def check_litellm(project: Project) -> CheckResult:
             "litellm executable",
             "warn",
             "not found in .venv or on PATH",
-            hint="needed only for `vllmops proxy`: run `uv add 'litellm[proxy]'` in the project",
+            hint="needed only for `vllmops proxy`: run `uv tool install 'litellm[proxy]'`",
         )
     resolved = executable if Path(executable).is_absolute() else (shutil.which(executable) or executable)
     return CheckResult("litellm executable", "ok", resolved)

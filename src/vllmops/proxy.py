@@ -221,11 +221,13 @@ def readiness_url(host: str, port: int) -> str:
 
 
 def resolve_litellm_executable(project: Project) -> str:
-    """Pick the litellm binary, preferring the project venv.
+    """Pick the litellm binary.
 
     A custom `proxy.executable` is returned verbatim. Otherwise: project venv,
-    then the interpreter's own bin dir (covers a litellm installed next to vllmops,
-    as `uv tool install vllmops --with 'litellm[proxy]'` does), then PATH.
+    then the interpreter's own bin dir, then PATH, which is where the documented
+    `uv tool install 'litellm[proxy]'` puts it. The first two keep existing
+    installs working; they are not recommended, since litellm's pins can move
+    the packages of whatever venv it shares.
     """
     configured = project.config.proxy.executable
     if configured != "litellm":
@@ -257,9 +259,8 @@ def check_litellm_available(project: Project, executable: str) -> None:
         f"litellm not found.\n"
         f"  Looked for: {project.root / '.venv' / 'bin' / 'litellm'}\n"
         f"  And in PATH for: {executable}\n\n"
-        f"To install the LiteLLM proxy in this project:\n"
-        f"  cd {project.root}\n"
-        f"  uv add 'litellm[proxy]'\n"
+        f"Install the LiteLLM proxy as its own tool, outside the project:\n"
+        f"  uv tool install 'litellm[proxy]'\n"
         f"\n"
         f"Or set proxy.executable to a custom path in .vllmops/config.yaml."
     )
