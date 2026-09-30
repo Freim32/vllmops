@@ -539,6 +539,46 @@ def test_unique_entries_with_only_the_general_group(project: Project) -> None:
     assert [e.name for e in entries] == ["a", "b"]
 
 
+def _project_with_a_duplicated_name(project: Project) -> Project:
+    """Files load in sorted order: a.yaml is the valid one, z-copy.yaml the broken duplicate."""
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    write_model_yaml(project, "z-copy", sleeper_payload("a", port=18002))
+    return _set_profiles(project, {"dev": ["a"]})
+
+
+def test_a_profile_keeps_the_valid_file_when_two_files_share_a_name(project: Project) -> None:
+    project = _project_with_a_duplicated_name(project)
+
+    dev = next(v for v in service.list_profiles(project) if v.name == "dev")
+
+    assert [(e.yaml_path.name, e.is_broken) for e in dev.entries] == [("a.yaml", False), ("z-copy.yaml", True)]
+
+
+def test_start_profile_skips_the_broken_duplicate_and_starts_the_valid_file(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _project_with_a_duplicated_name(project)
+    started: list[str] = []
+
+    def fake_start(project: Project, name: str, config_dir: Path | None = None) -> None:
+        started.append(name)
+
+    monkeypatch.setattr(service, "start_model", fake_start)
+
+    result = service.start_profile(project, "dev")
+
+    assert started == ["a"]
+    assert result.skipped == [("a", "invalid YAML")]
+
+
+def test_unique_entries_counts_both_files_of_a_duplicated_name_in_a_profile(project: Project) -> None:
+    project = _project_with_a_duplicated_name(project)
+
+    entries = service.unique_entries(service.list_profiles(project))
+
+    assert [(e.yaml_path.name, e.is_broken) for e in entries] == [("a.yaml", False), ("z-copy.yaml", True)]
+
+
 def test_unique_entries_keeps_a_second_file_with_the_same_name(project: Project) -> None:
     write_model_yaml(project, "a", sleeper_payload("a", port=18001))
     write_model_yaml(project, "a-copy", sleeper_payload("a", port=18002))

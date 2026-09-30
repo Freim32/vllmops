@@ -540,7 +540,11 @@ def list_profiles(
     Use `[v for v in list_profiles(...) if v.entries]` to filter for rendering.
     """
     entries = list_catalog_entries(project, config_dir)
-    by_name = {entry.name: entry for entry in entries}
+    # A list per name: two files declaring the same name are both kept, the
+    # valid one and its broken duplicate, so the conflict shows up where it matters.
+    by_name: dict[str, list[CatalogEntry]] = {}
+    for entry in entries:
+        by_name.setdefault(entry.name, []).append(entry)
 
     assigned: set[str] = set()
     views: list[ProfileView] = []
@@ -549,11 +553,11 @@ def list_profiles(
         profile_entries: list[CatalogEntry] = []
         missing: list[str] = []
         for model_name in model_names:
-            entry = by_name.get(model_name)
-            if entry is None:
+            named = by_name.get(model_name)
+            if named is None:
                 missing.append(model_name)
             else:
-                profile_entries.append(entry)
+                profile_entries.extend(named)
                 assigned.add(model_name)
         views.append(ProfileView(name=profile_name, entries=profile_entries, missing=missing))
 
