@@ -1,7 +1,8 @@
 name: nightly
 
-# Manual only. Builds the current main into a dev-versioned wheel and replaces
-# the rolling `nightly` prerelease, so there is exactly one nightly to download.
+# Manual only. Builds the ref picked in "Use workflow from" into a dev-versioned
+# wheel and replaces the rolling `nightly` prerelease, so there is exactly one
+# nightly to download.
 on:
   workflow_dispatch:
 
@@ -16,12 +17,10 @@ jobs:
   nightly:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
+        uses: astral-sh/setup-uv@v10
 
       - name: Set up Python
         run: uv python install 3.12
