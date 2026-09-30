@@ -215,8 +215,9 @@ def command(
     project = _get_project()
     with _service_errors("Invalid configuration"):
         rendered = service.build_command_string(project, model_name, config_dir=config_dir)
-    # Meant to be copied: printed verbatim, brackets in an argument included.
-    console.print(rendered, markup=False, highlight=False)
+    # Meant to be copied, so plain print: Rich would parse brackets as markup and
+    # break the line at the terminal width with real newlines.
+    print(rendered)
 
 
 def _print_status(status: ModelStatus) -> None:
@@ -400,8 +401,9 @@ def _print_log_tail(project: Project, model_name: str, lines: int = 30) -> None:
         return
     console.print(f"[dim]--- last {len(tail)} lines of log ---[/dim]")
     for line in tail:
-        # vLLM lines carry `[launcher.py:70]`-style prefixes that Rich would eat as tags.
-        console.print(line, markup=False, highlight=False)
+        # Plain print, like `logs -n`: vLLM lines carry `[launcher.py:70]`-style
+        # prefixes Rich would eat as tags, and are longer than most terminals.
+        print(line)
     console.print("[dim]--- end of log ---[/dim]")
 
 
@@ -705,7 +707,7 @@ def logs(
         return
 
     if not tail and not follow:
-        console.print(str(paths.log_path), markup=False, highlight=False)
+        print(paths.log_path)
         return
 
     if tail:
@@ -1001,7 +1003,7 @@ def proxy_logs(
         return
 
     if not tail and not follow:
-        console.print(str(log_path), markup=False, highlight=False)
+        print(log_path)
         return
 
     if tail:

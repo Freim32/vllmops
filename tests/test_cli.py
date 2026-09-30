@@ -250,6 +250,30 @@ def test_command_prints_bracketed_arguments_verbatim(project: Project, runner: C
     assert '"[end]"' in result.stdout
 
 
+def test_command_stays_on_one_line_in_a_narrow_terminal(project: Project, runner: CliRunner) -> None:
+    payload = sleeper_payload("m", port=18001)
+    payload["vllm"]["args"] = {f"--option-number-{i}": f"value-{i}" for i in range(12)}
+    write_model_yaml(project, "m", payload)
+
+    result = runner.invoke(app, ["command", "m"], env={"COLUMNS": "60"})
+
+    assert result.exit_code == 0
+    assert result.stdout == service.build_command_string(project, "m") + "\n"
+
+
+def test_the_startup_log_tail_keeps_long_lines_whole(project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    from vllmops.cli import _print_log_tail  # noqa: PLC0415
+
+    long_line = "INFO " + "x" * 300
+    log_path = service.runtime_paths_for(project, "m").log_path
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(long_line + "\n", encoding="utf-8")
+
+    _print_log_tail(project, "m")
+
+    assert long_line in capsys.readouterr().out.splitlines()
+
+
 def test_the_startup_log_tail_keeps_vllm_prefixes(project: Project, capsys: pytest.CaptureFixture[str]) -> None:
     from vllmops.cli import _print_log_tail  # noqa: PLC0415
 

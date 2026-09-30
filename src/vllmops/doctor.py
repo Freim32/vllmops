@@ -152,10 +152,14 @@ def check_litellm(project: Project) -> CheckResult:
     try:
         proxy_module.check_litellm_available(project, executable)
     except proxy_module.LitellmExecutableNotFoundError:
+        configured = project.config.proxy.executable
+        detail = (
+            "not found in .venv or on PATH" if configured == "litellm" else f"proxy.executable {configured!r} not found"
+        )
         return CheckResult(
             "litellm executable",
             "warn",
-            "not found in .venv or on PATH",
+            detail,
             hint="needed only for `vllmops proxy`: run `uv tool install 'litellm[proxy]'`",
         )
     resolved = executable if Path(executable).is_absolute() else (shutil.which(executable) or executable)

@@ -7,10 +7,11 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from tests.conftest import sleeper_payload, write_model_yaml
 from vllmops import doctor
-from vllmops.project import Project
+from vllmops.project import Project, load_project
 
 
 def test_check_python_version_current_passes() -> None:
@@ -93,6 +94,18 @@ def test_check_litellm_warns_when_missing(project: Project, monkeypatch: pytest.
     assert result.status == "warn"
     assert result.hint is not None
     assert "litellm[proxy]" in result.hint
+
+
+def test_check_litellm_names_a_configured_executable_that_is_missing(project: Project) -> None:
+    raw = yaml.safe_load(project.config_path.read_text(encoding="utf-8"))
+    raw["proxy"]["executable"] = "litellm-assente"
+    project.config_path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    project = load_project(project.root)
+
+    result = doctor.check_litellm(project)
+
+    assert result.status == "warn"
+    assert result.detail == "proxy.executable 'litellm-assente' not found"
 
 
 def test_check_litellm_ok_when_present_in_venv(project: Project) -> None:
