@@ -20,6 +20,7 @@ from vllmops.proxy import (
     ProxyStartupTimeoutError,
 )
 from vllmops.service import (
+    InvalidModelConfigError,
     ModelAlreadyExistsError,
     ModelAlreadyRunningError,
     ModelNotRunningError,
@@ -317,6 +318,10 @@ def _service_errors(action: str) -> Iterator[None]:
     except UnknownProfileError as exc:
         console.print(f"[bold red]Unknown profile:[/bold red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
+    except InvalidModelConfigError as exc:
+        console.print(f"[bold red]Invalid model config:[/bold red] {escape(str(exc))}")
+        console.print("  [dim]run `vllmops validate` for details[/dim]")
+        raise typer.Exit(code=1) from exc
     except ModelAlreadyRunningError as exc:
         console.print(f"[yellow]{escape(str(exc))} is already running[/yellow]")
         raise typer.Exit(code=1) from exc
@@ -610,9 +615,9 @@ def status(
         return
 
     with _service_errors("Cannot read configs"):
-        statuses = service.list_model_statuses(project, config_dir)
+        entries = service.list_catalog_entries(project, config_dir)
 
-    if not statuses:
+    if not entries:
         console.print("[yellow]no models configured[/yellow]")
         return
 
@@ -622,15 +627,21 @@ def status(
     table.add_column("PID", justify="right")
     table.add_column("Port", justify="right")
     table.add_column("Notes")
-    for s in statuses:
+    for entry in entries:
+        s = entry.status
+        if s is None:
+            table.add_row(escape(entry.name), "[red]invalid[/red]", "-", "-", escape(entry.error or ""))
+            continue
         table.add_row(
-            s.name,
+            escape(entry.name),
             "running" if s.running else "stopped",
             str(s.pid) if s.pid is not None else "-",
             str(s.metrics_port) if s.metrics_port else "-",
             "stale pid file" if s.stale_pid_file else "",
         )
     console.print(table)
+    if any(entry.is_broken for entry in entries):
+        console.print("[dim]run `vllmops validate` for details on invalid files[/dim]")
 
 
 def _read_last_lines(path: Path, n: int) -> list[str]:

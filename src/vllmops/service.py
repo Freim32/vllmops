@@ -64,6 +64,15 @@ class PortConflictError(RuntimeError):
     """Raised when starting a model whose metrics_port is already taken by another running model."""
 
 
+class InvalidModelConfigError(ValueError):
+    """Raised when the requested model's YAML exists but does not load."""
+
+    def __init__(self, path: Path, reason: str) -> None:
+        super().__init__(f"{path}: {reason}")
+        self.path = path
+        self.reason = reason
+
+
 @dataclass(frozen=True)
 class CreateModelResult:
     destination: Path
@@ -315,6 +324,10 @@ def build_command_args(
     """
     model = find_model(project, model_name, config_dir)
     if model is None:
+        # A broken file is listed under its file stem, the one name it still has.
+        for entry in list_catalog_entries(project, config_dir):
+            if entry.name == model_name and entry.error is not None:
+                raise InvalidModelConfigError(entry.yaml_path, entry.error)
         raise UnknownModelError(model_name)
     args = list(model.command_args())
     args[0] = resolve_vllm_executable(project, model.vllm.executable)
@@ -398,23 +411,15 @@ def get_model_status(
     )
 
 
-def list_model_statuses(
-    project: Project,
-    config_dir: Path | None = None,
-) -> list[ModelStatus]:
-    catalog = load_catalog_or_empty_for(project, config_dir)
-    return [get_model_status(project, model.name, config_dir) for model in catalog.models]
-
-
 def list_catalog_entries(
     project: Project,
     config_dir: Path | None = None,
 ) -> list[CatalogEntry]:
     """Return one entry per YAML in the models dir, including broken ones.
 
-    Unlike `list_model_statuses`, a single invalid file does not abort the
-    whole listing; it becomes a `CatalogEntry(error=...)` row. Duplicate
-    names or ports also produce broken rows.
+    A single invalid file does not abort the whole listing; it becomes a
+    `CatalogEntry(error=...)` row. Duplicate names or ports also produce
+    broken rows.
     """
     from vllmops.config import load_model_file  # noqa: PLC0415
 

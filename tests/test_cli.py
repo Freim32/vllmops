@@ -8,7 +8,7 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from tests.conftest import sleeper_payload, write_model_yaml
+from tests.conftest import posix_only, sleeper_payload, write_model_yaml
 from vllmops import proxy, service
 from vllmops.cli import app
 from vllmops.project import Project
@@ -93,6 +93,60 @@ def test_doctor_reports_an_invalid_project_config_in_one_line(project: Project, 
 
     assert result.exit_code == 1
     assert "unknown field `proxy.exopse`" in " ".join(result.stdout.split())
+
+
+# --- broken model files ---
+
+
+def _write_broken(project: Project, name: str) -> None:
+    project.models_dir.mkdir(parents=True, exist_ok=True)
+    (project.models_dir / f"{name}.yaml").write_text(f"name: {name}\nbogus_field: 1\n", encoding="utf-8")
+
+
+def test_status_lists_a_broken_file_next_to_the_valid_models(project: Project, runner: CliRunner) -> None:
+    write_model_yaml(project, "good", sleeper_payload("good", port=18001))
+    _mark_running(project, "good")
+    _write_broken(project, "rotto")
+
+    result = runner.invoke(app, ["status"], env={"COLUMNS": "200"})
+
+    assert result.exit_code == 0
+    rows = {line.split("│")[1].strip(): line for line in result.stdout.splitlines() if line.count("│") > 2}
+    assert "running" in rows["good"]
+    assert "invalid" in rows["rotto"]
+    assert "missing required field" in rows["rotto"]
+    assert "vllmops validate" in result.stdout
+
+
+def test_command_on_a_broken_file_says_why_instead_of_unknown(project: Project, runner: CliRunner) -> None:
+    _write_broken(project, "rotto")
+
+    result = runner.invoke(app, ["command", "rotto"])
+
+    assert result.exit_code == 1
+    one_line = " ".join(result.stdout.split())
+    assert "Invalid model config:" in one_line
+    assert "missing required field `vllm`" in one_line
+    assert "Unknown model" not in one_line
+
+
+@posix_only
+def test_start_on_a_broken_file_says_why_instead_of_unknown(project: Project, runner: CliRunner) -> None:
+    _write_broken(project, "rotto")
+
+    result = runner.invoke(app, ["start", "rotto"])
+
+    assert result.exit_code == 1
+    assert "Invalid model config:" in " ".join(result.stdout.split())
+
+
+def test_command_on_a_missing_name_is_still_unknown(project: Project, runner: CliRunner) -> None:
+    _write_broken(project, "rotto")
+
+    result = runner.invoke(app, ["command", "nope"])
+
+    assert result.exit_code == 1
+    assert "Unknown model:" in result.stdout
 
 
 # --- brackets survive Rich markup ---

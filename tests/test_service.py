@@ -213,18 +213,6 @@ def test_status_running_when_pid_alive(project: Project) -> None:
     assert status.pid == os.getpid()
 
 
-def test_list_model_statuses_empty_catalog(project: Project) -> None:
-    assert service.list_model_statuses(project) == []
-
-
-def test_list_model_statuses_iterates_catalog(project: Project) -> None:
-    free = 18001
-    write_model_yaml(project, "a", sleeper_payload("a", port=free))
-    write_model_yaml(project, "b", sleeper_payload("b", port=free + 1))
-    statuses = service.list_model_statuses(project)
-    assert {s.name for s in statuses} == {"a", "b"}
-
-
 # --- list_catalog_entries (lenient) ---
 
 
@@ -725,6 +713,18 @@ def test_build_command_args_unknown_model_still_raises_with_broken_sibling(
 
     with pytest.raises(UnknownModelError):
         service.build_command_args(project, "nonexistent")
+
+
+def test_build_command_args_names_a_broken_file_instead_of_unknown(project: Project) -> None:
+    project.models_dir.mkdir(parents=True, exist_ok=True)
+    bad = project.models_dir / "bad.yaml"
+    bad.write_text("name: bad\nbogus_field: 1\n", encoding="utf-8")
+
+    with pytest.raises(service.InvalidModelConfigError) as excinfo:
+        service.build_command_args(project, "bad")
+
+    assert excinfo.value.path == bad
+    assert excinfo.value.reason.startswith("missing required field `vllm`")
 
 
 def test_find_model_returns_none_when_missing(project: Project) -> None:
