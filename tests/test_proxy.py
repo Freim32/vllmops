@@ -287,6 +287,50 @@ def test_overlay_master_key_wins(project: Project, monkeypatch: pytest.MonkeyPat
 # --- overlay merge ---
 
 
+def test_overlay_routes_are_reported_apart_from_the_catalog_models(project: Project) -> None:
+    write_model_yaml(project, "m", sleeper_payload("m", port=18001))
+    _write_overlay(
+        project,
+        {
+            "model_list": [
+                {"model_name": "fast", "litellm_params": {"model": "hosted_vllm/m", "api_base": "http://h:1/v1"}},
+                {"model_name": "cloud", "litellm_params": {"model": "openai/gpt-x"}},
+                {"litellm_params": {"model": "no-name"}},
+                "not a mapping",
+            ]
+        },
+    )
+
+    result = proxy.build_proxy_config(project, _options(project, include_stopped=True))
+
+    assert [m.name for m in result.models] == ["m"]
+    assert result.overlay_routes == [
+        proxy.OverlayRoute("fast", "hosted_vllm/m", "http://h:1/v1"),
+        proxy.OverlayRoute("cloud", "openai/gpt-x", None),
+    ]
+
+
+def test_a_config_without_overlay_has_no_overlay_routes(project: Project) -> None:
+    write_model_yaml(project, "m", sleeper_payload("m", port=18001))
+
+    result = proxy.build_proxy_config(project, _options(project, include_stopped=True))
+
+    assert result.overlay_routes == []
+
+
+def test_no_models_error_names_the_profile_in_force(project: Project) -> None:
+    write_model_yaml(project, "m", sleeper_payload("m", port=18001))
+    # Any existing absolute path passes the litellm check, which runs before the config is built.
+    proxy_section = {"profile": "mono", "executable": str(Path(__file__).resolve())}
+    project = _patch_config(project, {"profiles": {"mono": []}, "proxy": proxy_section})
+
+    with pytest.raises(proxy.NoProxyModelsError) as excinfo:
+        proxy._plan(project, proxy.config_options(project))
+
+    assert excinfo.value.profile == "mono"
+    assert excinfo.value.skipped == []
+
+
 def test_overlay_settings_block_is_merged(project: Project) -> None:
     write_model_yaml(project, "m", sleeper_payload("m", port=18001))
     _write_overlay(project, {"litellm_settings": {"drop_params": True, "num_retries": 2}})

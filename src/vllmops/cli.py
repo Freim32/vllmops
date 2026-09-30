@@ -301,6 +301,21 @@ def _format_exc(exc: BaseException) -> str:
     return text[0] if text else exc.__class__.__name__
 
 
+def _no_proxy_models_hint(exc: NoProxyModelsError) -> str:
+    """What to do about an empty gateway, given the `proxy.profile` in force."""
+    if exc.profile is None:
+        return "start a model first, or set proxy.expose: all in .vllmops/config.yaml"
+    if not exc.skipped:
+        return (
+            f"profile '{exc.profile}' has no models: add some under profiles.{exc.profile}, "
+            "or change proxy.profile in .vllmops/config.yaml"
+        )
+    return (
+        f"profile '{exc.profile}' has no running model: start one with "
+        f"`vllmops start --profile {exc.profile}`, or set proxy.expose: all"
+    )
+
+
 @contextmanager
 def _service_errors(action: str) -> Iterator[None]:
     """Map service-layer exceptions to a red `action` prefix and exit code 1.
@@ -339,7 +354,7 @@ def _service_errors(action: str) -> Iterator[None]:
         console.print("[bold red]Nothing to proxy:[/bold red] no model qualifies for the generated config")
         for name, reason in exc.skipped:
             console.print(f"  [yellow]skip[/yellow] {name} [dim]({escape(reason)})[/dim]")
-        console.print("[dim]start a model first, or set proxy.expose: all in .vllmops/config.yaml[/dim]")
+        console.print(f"[dim]{escape(_no_proxy_models_hint(exc))}[/dim]")
         raise typer.Exit(code=1) from exc
     except (VllmExecutableNotFoundError, LitellmExecutableNotFoundError) as exc:
         console.print(f"[bold red]{action}:[/bold red]\n{escape(str(exc))}")
@@ -783,14 +798,23 @@ def profile_show(
         console.print(f"\n[yellow]declared but not in catalog:[/yellow] {escape(', '.join(view.missing))}")
 
 
-def _print_proxy_models(models: list[proxy.ProxyModelEntry], skipped: list[tuple[str, str]]) -> None:
-    if models:
+def _print_proxy_models(
+    models: list[proxy.ProxyModelEntry],
+    skipped: list[tuple[str, str]],
+    overlay: list[proxy.OverlayRoute],
+) -> None:
+    if models or overlay:
         table = Table(show_header=True, box=None, padding=(0, 2))
         table.add_column("model")
         table.add_column("upstream")
         table.add_column("api_base")
+        table.add_column("")
         for model in models:
-            table.add_row(model.name, escape(model.served_model), escape(model.api_base))
+            table.add_row(model.name, escape(model.served_model), escape(model.api_base), "")
+        for route in overlay:
+            table.add_row(
+                escape(route.name), escape(route.model), escape(route.api_base or "-"), "[dim](overlay)[/dim]"
+            )
         console.print(table)
     for name, reason in skipped:
         console.print(f"  [yellow]skip[/yellow] {name} [dim]({escape(reason)})[/dim]")
@@ -858,7 +882,7 @@ def proxy_start(
     console.print(f"  url:    {escape(result.url)}/v1")
     console.print(f"  config: {escape(str(result.config_path))}")
     console.print(f"  logs:   {escape(str(result.log_path))}")
-    _print_proxy_models(result.models, result.skipped)
+    _print_proxy_models(result.models, result.skipped, result.overlay_routes)
     _warn_unknown_overlay_keys(project, result.unknown_overlay_keys)
 
     if not wait:
@@ -901,7 +925,7 @@ def proxy_restart(
     console.print(f"[green]respawned[/green] litellm proxy pid={result.pid}")
     console.print(f"  url:    {escape(result.url)}/v1")
     console.print(f"  config: {escape(str(result.config_path))}")
-    _print_proxy_models(result.models, result.skipped)
+    _print_proxy_models(result.models, result.skipped, result.overlay_routes)
     _warn_unknown_overlay_keys(project, result.unknown_overlay_keys)
 
     if wait:

@@ -149,6 +149,57 @@ def test_command_on_a_missing_name_is_still_unknown(project: Project, runner: Cl
     assert "Unknown model:" in result.stdout
 
 
+# --- gateway output ---
+
+
+@pytest.mark.parametrize(
+    ("skipped", "profile", "expected"),
+    [
+        ([("m", "not running")], None, "start a model first, or set proxy.expose: all"),
+        ([], "mono", "profile 'mono' has no models: add some under profiles.mono"),
+        ([("m", "not running")], "dual", "start one with `vllmops start --profile dual`"),
+    ],
+)
+def test_the_no_models_hint_fits_the_profile_in_force(
+    runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    skipped: list[tuple[str, str]],
+    profile: str | None,
+    expected: str,
+) -> None:
+    def fail(*_: object) -> None:
+        raise proxy.NoProxyModelsError(skipped, profile=profile)
+
+    monkeypatch.setattr(proxy, "start_proxy", fail)
+
+    result = runner.invoke(app, ["proxy", "start"])
+
+    assert result.exit_code == 1
+    assert expected in " ".join(result.stdout.split())
+
+
+def test_proxy_start_lists_overlay_routes_after_the_catalog_models(
+    project: Project, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started = proxy.ProxyStartResult(
+        pid=1,
+        url="http://127.0.0.1:4000",
+        config_path=project.root / "runtime" / "litellm.yaml",
+        log_path=project.root / "runtime" / "logs" / "_proxy.log",
+        models=[proxy.ProxyModelEntry("m", "m", "http://127.0.0.1:7011/v1")],
+        skipped=[],
+        unknown_overlay_keys=[],
+        overlay_routes=[proxy.OverlayRoute("fast", "hosted_vllm/m", None)],
+    )
+    monkeypatch.setattr(proxy, "start_proxy", lambda *_: started)
+
+    result = runner.invoke(app, ["proxy", "start", "--no-wait"], env={"COLUMNS": "200"})
+
+    rows = [" ".join(line.split()) for line in result.stdout.splitlines()]
+    assert "m m http://127.0.0.1:7011/v1" in rows
+    assert "fast hosted_vllm/m - (overlay)" in rows
+
+
 # --- brackets survive Rich markup ---
 
 

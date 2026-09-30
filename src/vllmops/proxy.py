@@ -80,13 +80,14 @@ class LitellmExecutableNotFoundError(RuntimeError):
 class NoProxyModelsError(RuntimeError):
     """Raised when no catalog model qualifies for the generated config.
 
-    Carries the per-model skip reasons so the caller can explain the emptiness
-    instead of just reporting it.
+    Carries the per-model skip reasons and the `proxy.profile` in force, so the
+    caller can explain the emptiness instead of just reporting it.
     """
 
-    def __init__(self, skipped: list[tuple[str, str]]) -> None:
+    def __init__(self, skipped: list[tuple[str, str]], profile: str | None = None) -> None:
         super().__init__("no models available to proxy")
         self.skipped = skipped
+        self.profile = profile
 
 
 @dataclass(frozen=True)
@@ -114,11 +115,21 @@ class ProxyModelEntry:
 
 
 @dataclass(frozen=True)
+class OverlayRoute:
+    """A `model_list` entry that comes from the hand-written overlay, not the catalog."""
+
+    name: str
+    model: str
+    api_base: str | None
+
+
+@dataclass(frozen=True)
 class ProxyConfigResult:
     config: dict[str, Any]
     models: list[ProxyModelEntry]
     skipped: list[tuple[str, str]]
     unknown_overlay_keys: list[str]
+    overlay_routes: list[OverlayRoute]
 
 
 @dataclass(frozen=True)
@@ -130,6 +141,7 @@ class ProxyStartResult:
     models: list[ProxyModelEntry]
     skipped: list[tuple[str, str]]
     unknown_overlay_keys: list[str]
+    overlay_routes: list[OverlayRoute]
 
 
 @dataclass(frozen=True)
@@ -382,6 +394,29 @@ def merge_overlay(config: dict[str, Any], overlay: dict[str, Any]) -> dict[str, 
     return merged
 
 
+def overlay_routes(overlay: dict[str, Any]) -> list[OverlayRoute]:
+    """The overlay's own `model_list` entries, read as leniently as LiteLLM would get them."""
+    raw = overlay.get("model_list")
+    if not isinstance(raw, list):
+        return []
+    routes: list[OverlayRoute] = []
+    for item in raw:
+        if not isinstance(item, dict) or not isinstance(item.get("model_name"), str):
+            continue
+        params = item.get("litellm_params")
+        params = params if isinstance(params, dict) else {}
+        model = params.get("model")
+        api_base = params.get("api_base")
+        routes.append(
+            OverlayRoute(
+                name=item["model_name"],
+                model=model if isinstance(model, str) else "-",
+                api_base=api_base if isinstance(api_base, str) else None,
+            )
+        )
+    return routes
+
+
 def build_proxy_config(
     project: Project,
     options: ProxyOptions,
@@ -404,6 +439,7 @@ def build_proxy_config(
         models=models,
         skipped=skipped,
         unknown_overlay_keys=unknown,
+        overlay_routes=overlay_routes(overlay),
     )
 
 
@@ -467,7 +503,7 @@ def _plan(project: Project, options: ProxyOptions) -> _Plan:
 
     result = build_proxy_config(project, options)
     if not result.models:
-        raise NoProxyModelsError(result.skipped)
+        raise NoProxyModelsError(result.skipped, profile=options.profile)
     return _Plan(options=options, result=result)
 
 
@@ -495,6 +531,7 @@ def _launch(project: Project, plan: _Plan) -> ProxyStartResult:
         models=plan.result.models,
         skipped=plan.result.skipped,
         unknown_overlay_keys=plan.result.unknown_overlay_keys,
+        overlay_routes=plan.result.overlay_routes,
     )
 
 
