@@ -698,6 +698,64 @@ def test_restart_works_from_a_stopped_state(project: Project, tmp_path: Path) ->
 
 
 @posix_only
+def test_a_restart_without_models_keeps_the_running_gateway(project: Project, tmp_path: Path) -> None:
+    project = _project_with_stub(project, tmp_path)
+    try:
+        first = proxy.start_proxy(project, _options(project))
+        config_before = first.config_path.read_text(encoding="utf-8")
+        _mark_stopped(project, "m")
+
+        with pytest.raises(proxy.NoProxyModelsError):
+            proxy.restart_proxy(project, _options(project), timeout=5.0)
+
+        assert lifecycle.is_alive(first.pid)
+        assert lifecycle.read_pid(proxy.runtime_paths(project).pid_path) == first.pid
+        assert first.config_path.read_text(encoding="utf-8") == config_before
+    finally:
+        _kill_proxy(project)
+
+
+@posix_only
+def test_a_restart_onto_a_taken_port_keeps_the_running_gateway(project: Project, tmp_path: Path) -> None:
+    project = _project_with_stub(project, tmp_path)
+    try:
+        first = proxy.start_proxy(project, _options(project))
+
+        with pytest.raises(service.PortConflictError):
+            proxy.restart_proxy(project, _options(project, port=18001), timeout=5.0)
+
+        assert lifecycle.is_alive(first.pid)
+    finally:
+        _kill_proxy(project)
+
+
+@posix_only
+def test_a_restart_does_not_respawn_when_the_old_gateway_survives(
+    project: Project, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _project_with_stub(project, tmp_path)
+    try:
+        first = proxy.start_proxy(project, _options(project))
+        spawned: list[list[str]] = []
+
+        def fake_spawn(args: list[str], *_: object) -> int:
+            spawned.append(args)
+            return 0
+
+        monkeypatch.setattr(lifecycle, "terminate", lambda pid, timeout: False)
+        monkeypatch.setattr(lifecycle, "spawn_detached", fake_spawn)
+
+        with pytest.raises(proxy.ProxyStopFailedError, match=str(first.pid)):
+            proxy.restart_proxy(project, _options(project), timeout=5.0)
+
+        assert spawned == []
+        assert lifecycle.read_pid(proxy.runtime_paths(project).pid_path) == first.pid
+    finally:
+        monkeypatch.undo()
+        _kill_proxy(project)
+
+
+@posix_only
 def test_start_without_eligible_models_raises(project: Project, tmp_path: Path) -> None:
     write_model_yaml(project, "m", sleeper_payload("m", port=18001))
     project = _patch_config(project, {"proxy": {"executable": str(_litellm_stub(tmp_path))}})

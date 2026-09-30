@@ -66,6 +66,10 @@ class ProxyStartupTimeoutError(TimeoutError):
     """Raised when the proxy never answers on the readiness endpoint in time."""
 
 
+class ProxyStopFailedError(RuntimeError):
+    """Raised when a restart cannot take the old gateway down, so no new one is spawned."""
+
+
 class LitellmExecutableNotFoundError(RuntimeError):
     """Raised when the litellm binary cannot be found in the project venv or on PATH."""
 
@@ -441,58 +445,52 @@ def _check_port_free(project: Project, options: ProxyOptions) -> None:
 
 
 @dataclass(frozen=True)
-class _Prepared:
-    args: list[str]
-    env: dict[str, str]
-    config_path: Path
-    models: list[ProxyModelEntry]
-    skipped: list[tuple[str, str]]
-    unknown_overlay_keys: list[str]
+class _Plan:
+    options: ProxyOptions
+    result: ProxyConfigResult
 
 
-def _prepare(project: Project, options: ProxyOptions) -> _Prepared:
-    paths = runtime_paths(project)
-    pid = lifecycle.read_pid(paths.pid_path)
-    if pid is not None and lifecycle.is_alive(pid):
-        raise ProxyAlreadyRunningError(f"litellm proxy (pid {pid})")
+def _plan(project: Project, options: ProxyOptions) -> _Plan:
+    """Every check a launch needs, with nothing written and nothing stopped.
 
-    executable = resolve_litellm_executable(project)
-    check_litellm_available(project, executable)
+    A restart runs this while the old gateway still serves, so a config that
+    cannot start leaves it in place.
+    """
+    check_litellm_available(project, resolve_litellm_executable(project))
     _check_port_free(project, options)
 
     result = build_proxy_config(project, options)
     if not result.models:
         raise NoProxyModelsError(result.skipped)
-    config_path = write_proxy_config(project, result.config)
+    return _Plan(options=options, result=result)
 
-    return _Prepared(
-        args=build_proxy_command(project, config_path, options),
-        env=service.build_runtime_env(project, {}),
+
+def _launch(project: Project, plan: _Plan) -> ProxyStartResult:
+    paths = runtime_paths(project)
+    config_path = write_proxy_config(project, plan.result.config)
+    args = build_proxy_command(project, config_path, plan.options)
+
+    paths.pid_path.unlink(missing_ok=True)
+    pid = lifecycle.spawn_detached(args, service.build_runtime_env(project, {}), paths.log_path, paths.pid_path)
+
+    return ProxyStartResult(
+        pid=pid,
+        url=base_url(plan.options.host, plan.options.port),
         config_path=config_path,
-        models=result.models,
-        skipped=result.skipped,
-        unknown_overlay_keys=result.unknown_overlay_keys,
+        log_path=paths.log_path,
+        models=plan.result.models,
+        skipped=plan.result.skipped,
+        unknown_overlay_keys=plan.result.unknown_overlay_keys,
     )
 
 
 def start_proxy(project: Project, options: ProxyOptions) -> ProxyStartResult:
     """Generate the config and spawn the LiteLLM proxy in the background."""
     lifecycle.ensure_supported_platform()
-    prepared = _prepare(project, options)
-    paths = runtime_paths(project)
-
-    paths.pid_path.unlink(missing_ok=True)
-    pid = lifecycle.spawn_detached(prepared.args, prepared.env, paths.log_path, paths.pid_path)
-
-    return ProxyStartResult(
-        pid=pid,
-        url=base_url(options.host, options.port),
-        config_path=prepared.config_path,
-        log_path=paths.log_path,
-        models=prepared.models,
-        skipped=prepared.skipped,
-        unknown_overlay_keys=prepared.unknown_overlay_keys,
-    )
+    pid = lifecycle.read_pid(runtime_paths(project).pid_path)
+    if pid is not None and lifecycle.is_alive(pid):
+        raise ProxyAlreadyRunningError(f"litellm proxy (pid {pid})")
+    return _launch(project, _plan(project, options))
 
 
 def stop_proxy(project: Project, timeout: float = 30.0) -> None:
@@ -509,16 +507,21 @@ def stop_proxy(project: Project, timeout: float = 30.0) -> None:
 
 
 def restart_proxy(project: Project, options: ProxyOptions, timeout: float = 30.0) -> ProxyStartResult:
-    """Stop the proxy if running, then start it with a freshly generated config."""
+    """Start the proxy with a freshly generated config, replacing a running one.
+
+    The new config is checked before the old process is touched, so a restart
+    that cannot succeed leaves the running gateway and its config file alone.
+    """
     lifecycle.ensure_supported_platform()
+    plan = _plan(project, options)
     paths = runtime_paths(project)
     pid = lifecycle.read_pid(paths.pid_path)
 
-    if pid is not None and lifecycle.is_alive(pid):
-        lifecycle.terminate(pid, timeout=timeout)
+    if pid is not None and lifecycle.is_alive(pid) and not lifecycle.terminate(pid, timeout=timeout):
+        raise ProxyStopFailedError(f"old litellm proxy (pid {pid}) did not exit; not respawning on port {options.port}")
     paths.pid_path.unlink(missing_ok=True)
 
-    return start_proxy(project, options)
+    return _launch(project, plan)
 
 
 def _model_names_in_text(text: str) -> list[str]:
