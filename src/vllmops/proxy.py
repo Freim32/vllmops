@@ -30,6 +30,9 @@ GENERATED_CONFIG_NAME = "litellm.yaml"
 
 MASTER_KEY_ENV = "LITELLM_MASTER_KEY"
 READINESS_PATH = "/health/readiness"
+# An automatic refresh waits this long for the respawned gateway before it
+# reports the restart as not ready.
+REFRESH_READY_TIMEOUT = 60.0
 
 # vLLM answers OpenAI routes under /v1, and LiteLLM appends the route itself,
 # so api_base carries the /v1 postfix and nothing beyond it.
@@ -157,6 +160,9 @@ class ProxyRefresh:
     pid: int
     # Only "restarted" carries the routed models: the other two actions write nothing.
     models: list[ProxyModelEntry] = field(default_factory=list)
+    # Set when a respawned gateway did not answer on readiness: the restart itself
+    # happened, so this is reported rather than raised.
+    ready_error: str | None = None
 
 
 def config_options(project: Project, *, config_dir: Path | None = None) -> ProxyOptions:
@@ -612,11 +618,13 @@ def refresh_proxy(
     *,
     config_dir: Path | None = None,
     entries: list[service.CatalogEntry] | None = None,
+    ready_timeout: float = REFRESH_READY_TIMEOUT,
 ) -> ProxyRefresh | None:
     """Bring a running gateway back in line with the catalog.
 
     Returns None when no gateway is running: one that is down is never started,
-    and one that died on its own is never resurrected.
+    and one that died on its own is never resurrected. A respawn returns only
+    once the new gateway answers on readiness, or with `ready_error` set.
     """
     pid = lifecycle.read_pid(runtime_paths(project).pid_path)
     if pid is None or not lifecycle.is_alive(pid):
@@ -634,6 +642,10 @@ def refresh_proxy(
         return ProxyRefresh("unchanged", "config up to date", pid=pid)
 
     restarted = restart_proxy(project, options)
+    try:
+        wait_for_proxy_ready(project, options, timeout=ready_timeout)
+    except (ProxyStartupFailedError, ProxyStartupTimeoutError) as exc:
+        return ProxyRefresh("restarted", reason, pid=restarted.pid, models=restarted.models, ready_error=str(exc))
     return ProxyRefresh("restarted", reason, pid=restarted.pid, models=restarted.models)
 
 

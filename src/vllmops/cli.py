@@ -347,7 +347,11 @@ def _auto_refresh_proxy(project: Project, config_dir: Path | None) -> None:
         console.print("  [dim]take it down with: vllmops proxy stop[/dim]")
         return
 
-    console.print(f"[green]proxy refreshed[/green] pid={refresh.pid} [dim]({refresh.reason})[/dim]")
+    if refresh.ready_error is not None:
+        console.print(f"[yellow]proxy respawned pid={refresh.pid} but not ready:[/yellow] {refresh.ready_error}")
+        console.print("  [dim]check it with: vllmops proxy logs -n 40[/dim]")
+    else:
+        console.print(f"[green]proxy refreshed[/green] pid={refresh.pid} [dim]({refresh.reason})[/dim]")
     console.print(f"  routed: {', '.join(model.name for model in refresh.models)}")
 
 

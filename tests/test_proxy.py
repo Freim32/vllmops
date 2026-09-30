@@ -919,9 +919,15 @@ def test_refresh_leaves_an_up_to_date_gateway_running(project: Project, tmp_path
         _kill_proxy(project)
 
 
+def _gateway_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The litellm stub never listens, so readiness is faked for refreshes meant to succeed."""
+    monkeypatch.setattr(service, "probe_health", lambda url: True)
+
+
 @posix_only
-def test_refresh_respawns_with_the_new_model(project: Project, tmp_path: Path) -> None:
+def test_refresh_respawns_with_the_new_model(project: Project, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project = _project_with_two_models(project, tmp_path)
+    _gateway_answers(monkeypatch)
     try:
         started = proxy.start_proxy(project, _options(project))
         _mark_running(project, "b")
@@ -931,6 +937,7 @@ def test_refresh_respawns_with_the_new_model(project: Project, tmp_path: Path) -
         assert refresh is not None
         assert refresh.action == "restarted"
         assert refresh.reason == "added b"
+        assert refresh.ready_error is None
         assert refresh.pid != started.pid
         assert [model.name for model in refresh.models] == ["a", "b"]
         assert not lifecycle.is_alive(started.pid)
@@ -940,8 +947,29 @@ def test_refresh_respawns_with_the_new_model(project: Project, tmp_path: Path) -
 
 
 @posix_only
-def test_refresh_keeps_the_configured_port_across_a_respawn(project: Project, tmp_path: Path) -> None:
+def test_refresh_reports_a_respawned_gateway_that_does_not_answer(project: Project, tmp_path: Path) -> None:
     project = _project_with_two_models(project, tmp_path)
+    try:
+        proxy.start_proxy(project, _options(project))
+        _mark_running(project, "b")
+
+        refresh = proxy.refresh_proxy(project, ready_timeout=0.0)
+
+        assert refresh is not None
+        assert refresh.action == "restarted"
+        assert refresh.ready_error is not None
+        assert proxy.READINESS_PATH in refresh.ready_error
+        assert lifecycle.is_alive(refresh.pid)
+    finally:
+        _kill_proxy(project)
+
+
+@posix_only
+def test_refresh_keeps_the_configured_port_across_a_respawn(
+    project: Project, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _project_with_two_models(project, tmp_path)
+    _gateway_answers(monkeypatch)
     project = _patch_config(project, {"proxy": {**project.config.proxy.model_dump(), "port": 5002}})
     try:
         proxy.start_proxy(project, proxy.config_options(project))

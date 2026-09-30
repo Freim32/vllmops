@@ -309,6 +309,14 @@ class VllmopsApp(App[None]):
             return
         if refresh.action != "restarted":
             return
+        if refresh.ready_error is not None:
+            self.notify(
+                f"proxy respawned pid={refresh.pid} but not ready: {refresh.ready_error}",
+                severity="warning",
+                timeout=8,
+                markup=False,
+            )
+            return
         routed = ", ".join(model.name for model in refresh.models)
         self.notify(f"proxy restarted pid={refresh.pid}: {routed}", timeout=4, markup=False)
 
