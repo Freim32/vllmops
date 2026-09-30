@@ -698,6 +698,20 @@ def test_restart_works_from_a_stopped_state(project: Project, tmp_path: Path) ->
 
 
 @posix_only
+def test_a_restart_keeps_the_gateway_log_of_the_previous_run(project: Project, tmp_path: Path) -> None:
+    project = _project_with_stub(project, tmp_path)
+    try:
+        first = proxy.start_proxy(project, _options(project))
+        proxy.restart_proxy(project, _options(project), timeout=5.0)
+
+        log = first.log_path.read_text(encoding="utf-8")
+        assert log.count("=== vllmops: process started ") == 2
+        assert not first.log_path.with_suffix(".log.prev").exists()
+    finally:
+        _kill_proxy(project)
+
+
+@posix_only
 def test_a_restart_without_models_keeps_the_running_gateway(project: Project, tmp_path: Path) -> None:
     project = _project_with_stub(project, tmp_path)
     try:

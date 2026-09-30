@@ -7,6 +7,8 @@ import signal
 import subprocess
 import sys
 import time
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
 
 _WIN32_QUERY_LIMITED_INFORMATION = 0x1000
@@ -86,26 +88,53 @@ def read_pid(pid_path: Path) -> int | None:
         return None
 
 
+class LogMode(Enum):
+    """How a spawn treats the log file left by the previous run."""
+
+    # One file per run, the previous one kept as <log>.prev.
+    ROTATE = "rotate"
+    # One file across runs, each start marked by a line; rotated only past APPEND_LOG_MAX_BYTES.
+    APPEND = "append"
+
+
+APPEND_LOG_MAX_BYTES = 50 * 1024 * 1024
+
+
+def prepare_log_file(log_path: Path, mode: LogMode) -> str:
+    """Get log_path ready for a new run and return the mode to open it with."""
+    if mode is LogMode.ROTATE:
+        rotate_log_file(log_path)
+        return "wb"
+    if log_path.is_file() and log_path.stat().st_size > APPEND_LOG_MAX_BYTES:
+        rotate_log_file(log_path)
+    started = datetime.now().astimezone().isoformat(timespec="seconds")
+    with open(log_path, "a", encoding="utf-8") as handle:
+        handle.write(f"=== vllmops: process started {started} ===\n")
+    return "ab"
+
+
 def spawn_detached(
     cmd: list[str],
     env: dict[str, str],
     log_path: Path,
     pid_path: Path,
+    *,
+    log_mode: LogMode = LogMode.ROTATE,
 ) -> int:
     """Spawn a detached background process and write its PID to pid_path.
 
     The env dict is used verbatim as the child's environment. The child
     becomes its own session leader so the whole group can later be signaled
-    with `os.killpg(pid, ...)`. Each spawn rotates the existing log file to
-    `<log_path>.prev` so the new run starts with a clean log.
+    with `os.killpg(pid, ...)`. `log_mode` decides what happens to the log of
+    the previous run, see `LogMode`.
     """
     ensure_supported_platform()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     pid_path.parent.mkdir(parents=True, exist_ok=True)
 
-    rotate_log_file(log_path)
+    open_mode = prepare_log_file(log_path, log_mode)
 
-    log_handle = open(log_path, "wb", buffering=0)
+    log_handle = open(log_path, open_mode, buffering=0)
     try:
         process = subprocess.Popen(
             cmd,

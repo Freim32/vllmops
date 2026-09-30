@@ -477,7 +477,15 @@ def _launch(project: Project, plan: _Plan) -> ProxyStartResult:
     args = build_proxy_command(project, config_path, plan.options)
 
     paths.pid_path.unlink(missing_ok=True)
-    pid = lifecycle.spawn_detached(args, service.build_runtime_env(project, {}), paths.log_path, paths.pid_path)
+    # Every catalog change respawns the gateway, so one log across runs keeps
+    # its history readable.
+    pid = lifecycle.spawn_detached(
+        args,
+        service.build_runtime_env(project, {}),
+        paths.log_path,
+        paths.pid_path,
+        log_mode=lifecycle.LogMode.APPEND,
+    )
 
     return ProxyStartResult(
         pid=pid,
