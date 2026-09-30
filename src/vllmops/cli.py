@@ -10,7 +10,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from vllmops import __version__, proxy, service
-from vllmops.project import Project
+from vllmops.project import Project, ProjectConfigError
 from vllmops.proxy import (
     LitellmExecutableNotFoundError,
     NoProxyModelsError,
@@ -40,6 +40,16 @@ console = Console()
 # For commands whose stdout is data (`proxy config`, `logs -n`): notes and
 # warnings go here so a redirect or a pipe receives only the data.
 err_console = Console(stderr=True)
+
+
+def _get_project() -> Project:
+    """The project for the working directory, or a one-line error for an invalid config.yaml."""
+    try:
+        return service.get_project()
+    except ProjectConfigError as exc:
+        console.print(f"[bold red]Invalid .vllmops/config.yaml:[/bold red] {escape(exc.summary)}")
+        console.print(f"  [dim]file: {escape(str(exc.path))}[/dim]")
+        raise typer.Exit(code=1) from exc
 
 
 def _version_callback(value: bool) -> None:
@@ -122,7 +132,7 @@ def create_model(
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing model YAML."),
 ) -> None:
     """Create a minimal editable YAML config for one model."""
-    project = service.get_project()
+    project = _get_project()
 
     try:
         default_port = service.next_available_port(project, config_dir)
@@ -171,7 +181,7 @@ def validate(
     config_dir: Path | None = typer.Option(None, "--config-dir", "-c", help="Models directory."),
 ) -> None:
     """Validate model YAML files."""
-    project = service.get_project()
+    project = _get_project()
     with _service_errors("Invalid configuration"):
         catalog = service.load_catalog_for(project, config_dir)
 
@@ -201,7 +211,7 @@ def command(
     config_dir: Path | None = typer.Option(None, "--config-dir", "-c", help="Models directory."),
 ) -> None:
     """Print the bare-metal vLLM command for a configured model."""
-    project = service.get_project()
+    project = _get_project()
     with _service_errors("Invalid configuration"):
         rendered = service.build_command_string(project, model_name, config_dir=config_dir)
     # Meant to be copied: printed verbatim, brackets in an argument included.
@@ -394,7 +404,7 @@ def start(
     from HuggingFace on first start; HF_TOKEN is read from .env or the shell.
     """
     _require_one_target(model_name, profile, "start")
-    project = service.get_project()
+    project = _get_project()
 
     if profile is not None:
         with _service_errors("Cannot start"):
@@ -477,7 +487,7 @@ def stop(
 ) -> None:
     """Stop a running vLLM server (SIGTERM, then SIGKILL after timeout)."""
     _require_one_target(model_name, profile, "stop")
-    project = service.get_project()
+    project = _get_project()
 
     if profile is not None:
         with _service_errors("Cannot stop"):
@@ -508,7 +518,7 @@ def restart(
 ) -> None:
     """Restart a vLLM server (stop if running, then start)."""
     _require_one_target(model_name, profile, "restart")
-    project = service.get_project()
+    project = _get_project()
 
     if profile is not None:
         with _service_errors("Cannot restart"):
@@ -573,7 +583,7 @@ def health(
     timeout: float = typer.Option(2.0, "--timeout", "-t", help="HTTP timeout."),
 ) -> None:
     """One-shot probe of a model's /health endpoint."""
-    project = service.get_project()
+    project = _get_project()
     model_status = service.get_model_status(project, model_name, config_dir)
     if model_status.metrics_port is None:
         console.print("[bold red]No HTTP port configured for this model[/bold red]")
@@ -593,7 +603,7 @@ def status(
     config_dir: Path | None = typer.Option(None, "--config-dir", "-c", help="Models directory."),
 ) -> None:
     """Show running state for one model or for the whole catalog."""
-    project = service.get_project()
+    project = _get_project()
 
     if model_name is not None:
         _print_status(service.get_model_status(project, model_name, config_dir))
@@ -661,7 +671,7 @@ def logs(
     follow: bool = typer.Option(False, "--follow", "-f", help="Follow the log (Ctrl-C to stop)."),
 ) -> None:
     """Print or follow a model's log file."""
-    project = service.get_project()
+    project = _get_project()
     paths = service.runtime_paths_for(project, model_name)
 
     if not paths.log_path.exists():
@@ -685,7 +695,7 @@ def profile_list(
     config_dir: Path | None = typer.Option(None, "--config-dir", "-c", help="Models directory."),
 ) -> None:
     """List all profiles with running/total counts."""
-    project = service.get_project()
+    project = _get_project()
     views = service.list_profiles(project, config_dir)
     renderable = [v for v in views if v.entries]
     if not renderable:
@@ -725,7 +735,7 @@ def profile_show(
     config_dir: Path | None = typer.Option(None, "--config-dir", "-c", help="Models directory."),
 ) -> None:
     """Show a profile's members, their state, and any declared-but-missing models."""
-    project = service.get_project()
+    project = _get_project()
     views = service.list_profiles(project, config_dir)
     view = next((v for v in views if v.name == profile_name), None)
     if view is None:
@@ -827,7 +837,7 @@ def proxy_start(
     `.vllmops/config.yaml`, so that a later automatic refresh regenerates exactly
     what you started.
     """
-    project = service.get_project()
+    project = _get_project()
     options = proxy.config_options(project, config_dir=config_dir)
 
     with _service_errors("Cannot start proxy"):
@@ -852,7 +862,7 @@ def proxy_stop(
     timeout: float = typer.Option(30.0, "--timeout", "-t", help="Seconds before SIGKILL."),
 ) -> None:
     """Stop the LiteLLM gateway (SIGTERM, then SIGKILL after timeout)."""
-    project = service.get_project()
+    project = _get_project()
     with _service_errors("Cannot stop proxy"):
         proxy.stop_proxy(project, timeout=timeout)
     console.print("[green]stopped[/green] litellm proxy")
@@ -871,7 +881,7 @@ def proxy_restart(
     editing the `proxy` section or the `.vllmops/litellm.yaml` overlay, or to
     pick up a model that died on its own.
     """
-    project = service.get_project()
+    project = _get_project()
     options = proxy.config_options(project, config_dir=config_dir)
 
     with _service_errors("Cannot restart proxy"):
@@ -892,7 +902,7 @@ def proxy_status(
     config_dir: Path | None = typer.Option(None, "--config-dir", "-c", help="Models directory."),
 ) -> None:
     """Show gateway state and whether the config on disk is still current."""
-    project = service.get_project()
+    project = _get_project()
     options = proxy.config_options(project, config_dir=config_dir)
     with _service_errors("Cannot read proxy status"):
         status = proxy.proxy_status(project, options)
@@ -922,7 +932,7 @@ def proxy_config(
     out: Path | None = typer.Option(None, "--out", "-o", help="Write the config here instead of stdout."),
 ) -> None:
     """Print the LiteLLM config that `proxy start` would generate. Starts nothing."""
-    project = service.get_project()
+    project = _get_project()
     options = proxy.config_options(project, config_dir=config_dir)
     with _service_errors("Cannot build proxy config"):
         result = proxy.build_proxy_config(project, options)
@@ -948,7 +958,7 @@ def proxy_logs(
     follow: bool = typer.Option(False, "--follow", "-f", help="Follow the log (Ctrl-C to stop)."),
 ) -> None:
     """Print or follow the LiteLLM gateway log."""
-    project = service.get_project()
+    project = _get_project()
     log_path = proxy.runtime_paths(project).log_path
 
     if not log_path.exists():
@@ -990,7 +1000,7 @@ def tui(
     from vllmops.tui import VllmopsApp  # noqa: PLC0415
     from vllmops.tui.app import TuiOptions  # noqa: PLC0415
 
-    project = service.get_project()
+    project = _get_project()
     options = TuiOptions(project=project, health_host=health_host, theme=theme)
     VllmopsApp(options).run()
 

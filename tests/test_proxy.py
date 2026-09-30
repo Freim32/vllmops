@@ -11,11 +11,10 @@ from typing import Any
 
 import pytest
 import yaml
-from pydantic import ValidationError
 
 from tests.conftest import posix_only, sleeper_payload, write_model_yaml
 from vllmops import lifecycle, proxy, service
-from vllmops.project import Project, load_project
+from vllmops.project import Project, ProjectConfigError, load_project
 from vllmops.proxy import ProxyOptions
 
 
@@ -418,17 +417,17 @@ def test_config_options_carry_every_proxy_key(project: Project) -> None:
 
 
 def test_config_rejects_an_unknown_expose_value(project: Project) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ProjectConfigError, match="proxy.expose"):
         _patch_config(project, {"proxy": {"expose": "sometimes"}})
 
 
 def test_config_rejects_a_worker_count_below_one(project: Project) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ProjectConfigError, match="proxy.num_workers"):
         _patch_config(project, {"proxy": {"num_workers": 0}})
 
 
 def test_config_rejects_a_leftover_follow_models_key(project: Project) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ProjectConfigError, match="proxy.follow_models"):
         _patch_config(project, {"proxy": {"follow_models": True}})
 
 

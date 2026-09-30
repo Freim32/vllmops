@@ -71,6 +71,30 @@ def test_proxy_logs_without_a_log_file_keeps_stdout_empty(runner: CliRunner) -> 
     assert "no log yet" in result.stderr
 
 
+# --- invalid .vllmops/config.yaml ---
+
+
+def test_an_invalid_project_config_is_one_line_not_a_traceback(project: Project, runner: CliRunner) -> None:
+    project.config_path.write_text("proxy:\n  expose: tutti\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 1
+    one_line = " ".join(result.stdout.split())  # Rich wraps at the runner's 80 columns
+    assert "Invalid .vllmops/config.yaml: `proxy.expose`: Input should be 'running' or 'all'" in one_line
+    assert "Traceback" not in result.stdout
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+def test_doctor_reports_an_invalid_project_config_in_one_line(project: Project, runner: CliRunner) -> None:
+    project.config_path.write_text("proxy:\n  exopse: all\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert "unknown field `proxy.exopse`" in " ".join(result.stdout.split())
+
+
 # --- brackets survive Rich markup ---
 
 

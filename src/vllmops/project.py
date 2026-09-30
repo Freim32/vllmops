@@ -4,7 +4,9 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+
+from vllmops.config_errors import explain_yaml_error
 
 PROJECT_DIR = ".vllmops"
 PROJECT_CONFIG = "config.yaml"
@@ -200,14 +202,30 @@ def find_project_root(start: Path) -> Path | None:
     return None
 
 
+class ProjectConfigError(ValueError):
+    """Raised when .vllmops/config.yaml does not parse or does not validate.
+
+    Every command loads the project first, so the message is the one-line
+    summary from `explain_yaml_error`, not pydantic's multi-line report.
+    """
+
+    def __init__(self, path: Path, summary: str) -> None:
+        super().__init__(f"{path}: {summary}")
+        self.path = path
+        self.summary = summary
+
+
 def load_project(start: Path | None = None) -> Project:
     start_path = Path.cwd() if start is None else start
     root = find_project_root(start_path) or start_path.resolve()
     config_path = root / PROJECT_DIR / PROJECT_CONFIG
 
     if config_path.is_file():
-        raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-        config = ProjectConfig.model_validate(raw)
+        try:
+            raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+            config = ProjectConfig.model_validate(raw)
+        except (yaml.YAMLError, ValidationError) as exc:
+            raise ProjectConfigError(config_path, explain_yaml_error(exc).summary) from exc
     else:
         config = ProjectConfig()
 
