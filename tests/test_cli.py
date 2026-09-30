@@ -69,3 +69,67 @@ def test_proxy_logs_without_a_log_file_keeps_stdout_empty(runner: CliRunner) -> 
     assert result.exit_code == 0
     assert result.stdout == ""
     assert "no log yet" in result.stderr
+
+
+# --- brackets survive Rich markup ---
+
+
+def test_a_service_error_with_brackets_is_printed_verbatim(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(*_: object) -> None:
+        raise RuntimeError("bad value [x] in config")
+
+    monkeypatch.setattr(proxy, "start_proxy", fail)
+
+    result = runner.invoke(app, ["proxy", "start"])
+
+    assert result.exit_code == 1
+    assert "bad value [x] in config" in result.stdout
+
+
+def test_the_litellm_install_hint_keeps_its_extra(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(*_: object) -> None:
+        raise proxy.LitellmExecutableNotFoundError("run: uv tool install 'litellm[proxy]'")
+
+    monkeypatch.setattr(proxy, "start_proxy", fail)
+
+    result = runner.invoke(app, ["proxy", "start"])
+
+    assert "'litellm[proxy]'" in result.stdout
+
+
+def test_doctor_prints_details_and_hints_verbatim(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    from vllmops import doctor  # noqa: PLC0415
+
+    checks = [doctor.CheckResult("litellm executable", "warn", "not in [.venv]", hint="add 'litellm[proxy]'")]
+    monkeypatch.setattr(doctor, "run_checks", lambda: checks)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "not in [.venv]" in result.stdout
+    assert "add 'litellm[proxy]'" in result.stdout
+
+
+def test_command_prints_bracketed_arguments_verbatim(project: Project, runner: CliRunner) -> None:
+    payload = sleeper_payload("m", port=18001)
+    # Rich only eats word-like tags, so a bare number in brackets would not show the bug.
+    payload["vllm"]["args"] = {"--override-generation-config": '{"stop": ["[end]"]}'}
+    write_model_yaml(project, "m", payload)
+
+    result = runner.invoke(app, ["command", "m"])
+
+    assert result.exit_code == 0
+    assert '"[end]"' in result.stdout
+
+
+def test_the_startup_log_tail_keeps_vllm_prefixes(project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    from vllmops.cli import _print_log_tail  # noqa: PLC0415
+
+    log_path = service.runtime_paths_for(project, "m").log_path
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("INFO [launcher.py:70] Route: /v1/models\nERROR [/core] boom\n", encoding="utf-8")
+
+    _print_log_tail(project, "m")
+
+    out = capsys.readouterr().out
+    assert "[launcher.py:70] Route: /v1/models" in out
+    assert "[/core] boom" in out

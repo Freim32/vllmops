@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from vllmops import __version__, proxy, service
@@ -88,22 +89,24 @@ def init(
     try:
         written = service.initialize_workspace(path, force=force, name=name)
     except FileExistsError as exc:
-        console.print(f"[bold red]Already initialized:[/bold red] {exc}")
+        console.print(f"[bold red]Already initialized:[/bold red] {escape(str(exc))}")
         console.print("Use --force to rewrite project files.")
         raise typer.Exit(code=1) from exc
     except ValueError as exc:
-        console.print(f"[bold red]Invalid name:[/bold red] {exc}")
+        console.print(f"[bold red]Invalid name:[/bold red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
     except Exception as exc:
-        console.print(f"[bold red]Init failed:[/bold red] {exc}")
+        console.print(f"[bold red]Init failed:[/bold red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
 
     project = service.get_project(path)
-    console.print(f"[bold green]Initialized vllmops project[/bold green] {project.name} at {project.root}")
+    console.print(
+        f"[bold green]Initialized vllmops project[/bold green] {escape(project.name)} at {escape(str(project.root))}"
+    )
     for file in written:
-        console.print(f"[green]wrote[/green] {file}")
+        console.print(f"[green]wrote[/green] {escape(str(file))}")
     console.print("\n[dim]Next steps:[/dim]")
-    console.print(f"  [cyan]cd {project.root}[/cyan]")
+    console.print(f"  [cyan]cd {escape(str(project.root))}[/cyan]")
     console.print("  [cyan]uv sync[/cyan]                   # creates .venv and installs vLLM")
     console.print("  [cyan]vllmops create-model ...[/cyan]")
     console.print("  [cyan]vllmops start <name>[/cyan]")
@@ -124,7 +127,7 @@ def create_model(
     try:
         default_port = service.next_available_port(project, config_dir)
     except Exception as exc:
-        console.print(f"[bold red]Cannot read existing configs:[/bold red] {exc}")
+        console.print(f"[bold red]Cannot read existing configs:[/bold red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
 
     resolved_name: str = name if name is not None else typer.prompt("Mnemonic name")
@@ -151,16 +154,16 @@ def create_model(
             force=force,
         )
     except ModelAlreadyExistsError as exc:
-        console.print(f"[bold red]Already exists:[/bold red] {exc}")
+        console.print(f"[bold red]Already exists:[/bold red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
     except Exception as exc:
-        console.print(f"[bold red]Cannot create config:[/bold red] {exc}")
+        console.print(f"[bold red]Cannot create config:[/bold red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
 
-    console.print(f"[green]wrote[/green] {result.destination}")
+    console.print(f"[green]wrote[/green] {escape(str(result.destination))}")
     console.print("Edit this YAML by hand for advanced vLLM args, then run:")
     console.print("  vllmops validate")
-    console.print(f"  vllmops start {resolved_name}")
+    console.print(f"  vllmops start {escape(resolved_name)}")
 
 
 @app.command()
@@ -182,7 +185,7 @@ def validate(
     for model in catalog.models:
         table.add_row(
             model.name,
-            model.vllm.model,
+            escape(model.vllm.model),
             str(model.metrics_port or "-"),
             str(len(model.env)),
             str(len(model.vllm.args) + len(model.vllm.flags) + len(model.vllm.extra_args)),
@@ -201,7 +204,8 @@ def command(
     project = service.get_project()
     with _service_errors("Invalid configuration"):
         rendered = service.build_command_string(project, model_name, config_dir=config_dir)
-    console.print(rendered)
+    # Meant to be copied: printed verbatim, brackets in an argument included.
+    console.print(rendered, markup=False, highlight=False)
 
 
 def _print_status(status: ModelStatus) -> None:
@@ -226,12 +230,12 @@ def _print_bulk_result(result: service.BulkResult) -> None:
         summary_parts.append(f"[bold red]{len(result.failed)} failed[/bold red]")
     if not summary_parts:
         summary_parts.append("[dim]nothing to do[/dim]")
-    console.print(f"[bold]{result.profile}[/bold]: " + ", ".join(summary_parts))
+    console.print(f"[bold]{escape(result.profile)}[/bold]: " + ", ".join(summary_parts))
 
     for name, reason in result.skipped:
-        console.print(f"  [yellow]skip[/yellow] {name} [dim]({reason})[/dim]")
+        console.print(f"  [yellow]skip[/yellow] {name} [dim]({escape(reason)})[/dim]")
     for name, error in result.failed:
-        console.print(f"  [red]fail[/red] {name} [dim]{error}[/dim]")
+        console.print(f"  [red]fail[/red] {name} [dim]{escape(str(error))}[/dim]")
 
 
 def _require_one_target(model_name: str | None, profile: str | None, command: str) -> None:
@@ -298,35 +302,35 @@ def _service_errors(action: str) -> Iterator[None]:
     try:
         yield
     except UnknownModelError as exc:
-        console.print(f"[bold red]Unknown model:[/bold red] {exc}")
+        console.print(f"[bold red]Unknown model:[/bold red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
     except UnknownProfileError as exc:
-        console.print(f"[bold red]Unknown profile:[/bold red] {exc}")
+        console.print(f"[bold red]Unknown profile:[/bold red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
     except ModelAlreadyRunningError as exc:
-        console.print(f"[yellow]{exc} is already running[/yellow]")
+        console.print(f"[yellow]{escape(str(exc))} is already running[/yellow]")
         raise typer.Exit(code=1) from exc
     except ModelNotRunningError as exc:
-        console.print(f"[yellow]{exc} is not running[/yellow]")
+        console.print(f"[yellow]{escape(str(exc))} is not running[/yellow]")
         raise typer.Exit(code=1) from exc
     except ProxyAlreadyRunningError as exc:
-        console.print(f"[yellow]{exc} is already running[/yellow]")
+        console.print(f"[yellow]{escape(str(exc))} is already running[/yellow]")
         console.print("[dim]use `vllmops proxy restart` to pick up catalog changes[/dim]")
         raise typer.Exit(code=1) from exc
     except ProxyNotRunningError as exc:
-        console.print(f"[yellow]{exc} is not running[/yellow]")
+        console.print(f"[yellow]{escape(str(exc))} is not running[/yellow]")
         raise typer.Exit(code=1) from exc
     except NoProxyModelsError as exc:
         console.print("[bold red]Nothing to proxy:[/bold red] no model qualifies for the generated config")
         for name, reason in exc.skipped:
-            console.print(f"  [yellow]skip[/yellow] {name} [dim]({reason})[/dim]")
+            console.print(f"  [yellow]skip[/yellow] {name} [dim]({escape(reason)})[/dim]")
         console.print("[dim]start a model first, or set proxy.expose: all in .vllmops/config.yaml[/dim]")
         raise typer.Exit(code=1) from exc
     except (VllmExecutableNotFoundError, LitellmExecutableNotFoundError) as exc:
-        console.print(f"[bold red]{action}:[/bold red]\n{exc}")
+        console.print(f"[bold red]{action}:[/bold red]\n{escape(str(exc))}")
         raise typer.Exit(code=1) from exc
     except Exception as exc:
-        console.print(f"[bold red]{action}:[/bold red] {exc}")
+        console.print(f"[bold red]{action}:[/bold red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
 
 
@@ -339,7 +343,7 @@ def _auto_refresh_proxy(project: Project, config_dir: Path | None) -> None:
     try:
         refresh = proxy.refresh_proxy(project, config_dir=config_dir)
     except Exception as exc:
-        console.print(f"[yellow]proxy refresh failed:[/yellow] {_format_exc(exc)}")
+        console.print(f"[yellow]proxy refresh failed:[/yellow] {escape(_format_exc(exc))}")
         console.print("  [dim]the gateway is out of date; regenerate with `vllmops proxy restart`[/dim]")
         return
 
@@ -351,10 +355,12 @@ def _auto_refresh_proxy(project: Project, config_dir: Path | None) -> None:
         return
 
     if refresh.ready_error is not None:
-        console.print(f"[yellow]proxy respawned pid={refresh.pid} but not ready:[/yellow] {refresh.ready_error}")
+        console.print(
+            f"[yellow]proxy respawned pid={refresh.pid} but not ready:[/yellow] {escape(refresh.ready_error)}"
+        )
         console.print("  [dim]check it with: vllmops proxy logs -n 40[/dim]")
     else:
-        console.print(f"[green]proxy refreshed[/green] pid={refresh.pid} [dim]({refresh.reason})[/dim]")
+        console.print(f"[green]proxy refreshed[/green] pid={refresh.pid} [dim]({escape(refresh.reason)})[/dim]")
     console.print(f"  routed: {', '.join(model.name for model in refresh.models)}")
 
 
@@ -364,7 +370,8 @@ def _print_log_tail(project: Project, model_name: str, lines: int = 30) -> None:
         return
     console.print(f"[dim]--- last {len(tail)} lines of log ---[/dim]")
     for line in tail:
-        console.print(line)
+        # vLLM lines carry `[launcher.py:70]`-style prefixes that Rich would eat as tags.
+        console.print(line, markup=False, highlight=False)
     console.print("[dim]--- end of log ---[/dim]")
 
 
@@ -403,7 +410,7 @@ def start(
             for name in ready_names:
                 console.print(f"  [green]ready[/green] {name}")
             for name, err in wait_failed:
-                console.print(f"  [red]not ready[/red] {name} [dim]{err}[/dim]")
+                console.print(f"  [red]not ready[/red] {name} [dim]{escape(err)}[/dim]")
 
         if result.succeeded:
             _auto_refresh_proxy(project, config_dir)
@@ -416,7 +423,7 @@ def start(
 
     dotenv_count = len(service.load_dotenv(project))
     console.print(f"[green]spawned[/green] {model_name} pid={status.pid}")
-    console.print(f"  logs: {status.log_path}")
+    console.print(f"  logs: {escape(str(status.log_path))}")
     if status.metrics_port:
         console.print(f"  http: http://{health_host}:{status.metrics_port}")
     if dotenv_count:
@@ -446,15 +453,15 @@ def start(
                 ),
             )
     except ModelStartupFailedError as exc:
-        console.print(f"[bold red]Startup failed:[/bold red] {exc}")
+        console.print(f"[bold red]Startup failed:[/bold red] {escape(str(exc))}")
         _print_log_tail(project, model_name)
         raise typer.Exit(code=1) from exc
     except ModelStartupTimeoutError as exc:
-        console.print(f"[bold red]Timeout:[/bold red] {exc}")
+        console.print(f"[bold red]Timeout:[/bold red] {escape(str(exc))}")
         console.print(f"  process is still running; tail with: vllmops logs {model_name} --follow")
         raise typer.Exit(code=1) from exc
     except Exception as exc:
-        console.print(f"[bold red]Wait failed:[/bold red] {exc}")
+        console.print(f"[bold red]Wait failed:[/bold red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
 
     console.print(f"[bold green]ready[/bold green] {model_name} pid={ready.pid}")
@@ -517,7 +524,7 @@ def restart(
             for name in ready_names:
                 console.print(f"  [green]ready[/green] {name}")
             for name, err in wait_failed:
-                console.print(f"  [red]not ready[/red] {name} [dim]{err}[/dim]")
+                console.print(f"  [red]not ready[/red] {name} [dim]{escape(err)}[/dim]")
 
         if result.succeeded:
             _auto_refresh_proxy(project, config_dir)
@@ -548,11 +555,11 @@ def restart(
                 ),
             )
     except ModelStartupFailedError as exc:
-        console.print(f"[bold red]Startup failed:[/bold red] {exc}")
+        console.print(f"[bold red]Startup failed:[/bold red] {escape(str(exc))}")
         _print_log_tail(project, model_name)
         raise typer.Exit(code=1) from exc
     except ModelStartupTimeoutError as exc:
-        console.print(f"[bold red]Timeout:[/bold red] {exc}")
+        console.print(f"[bold red]Timeout:[/bold red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
 
     console.print(f"[bold green]ready[/bold green] {model_name} pid={ready.pid}")
@@ -574,9 +581,9 @@ def health(
 
     url = service.health_url(host, model_status.metrics_port)
     if service.probe_health(url, timeout=timeout):
-        console.print(f"[bold green]healthy[/bold green] {url}")
+        console.print(f"[bold green]healthy[/bold green] {escape(url)}")
         return
-    console.print(f"[bold red]unhealthy[/bold red] {url}")
+    console.print(f"[bold red]unhealthy[/bold red] {escape(url)}")
     raise typer.Exit(code=1)
 
 
@@ -658,11 +665,11 @@ def logs(
     paths = service.runtime_paths_for(project, model_name)
 
     if not paths.log_path.exists():
-        err_console.print(f"[yellow]no log yet:[/yellow] {paths.log_path}")
+        err_console.print(f"[yellow]no log yet:[/yellow] {escape(str(paths.log_path))}")
         return
 
     if not tail and not follow:
-        console.print(str(paths.log_path))
+        console.print(str(paths.log_path), markup=False, highlight=False)
         return
 
     if tail:
@@ -701,7 +708,7 @@ def profile_list(
         else:
             missing = "0"
         table.add_row(
-            f"[{style}]{view.name}[/{style}]" if style else view.name,
+            f"[{style}]{escape(view.name)}[/{style}]" if style else escape(view.name),
             str(view.total_count),
             str(view.running_count),
             missing,
@@ -722,10 +729,10 @@ def profile_show(
     views = service.list_profiles(project, config_dir)
     view = next((v for v in views if v.name == profile_name), None)
     if view is None:
-        console.print(f"[bold red]Unknown profile:[/bold red] {profile_name}")
+        console.print(f"[bold red]Unknown profile:[/bold red] {escape(profile_name)}")
         raise typer.Exit(code=1)
 
-    console.print(f"[bold]Profile:[/bold] {view.name}")
+    console.print(f"[bold]Profile:[/bold] {escape(view.name)}")
     if view.entries:
         table = Table(show_header=True)
         table.add_column("Name")
@@ -752,7 +759,7 @@ def profile_show(
         console.print("[dim]no models in this profile[/dim]")
 
     if view.missing:
-        console.print(f"\n[yellow]declared but not in catalog:[/yellow] {', '.join(view.missing)}")
+        console.print(f"\n[yellow]declared but not in catalog:[/yellow] {escape(', '.join(view.missing))}")
 
 
 def _print_proxy_models(models: list[proxy.ProxyModelEntry], skipped: list[tuple[str, str]]) -> None:
@@ -762,16 +769,18 @@ def _print_proxy_models(models: list[proxy.ProxyModelEntry], skipped: list[tuple
         table.add_column("upstream")
         table.add_column("api_base")
         for model in models:
-            table.add_row(model.name, model.served_model, model.api_base)
+            table.add_row(model.name, escape(model.served_model), escape(model.api_base))
         console.print(table)
     for name, reason in skipped:
-        console.print(f"  [yellow]skip[/yellow] {name} [dim]({reason})[/dim]")
+        console.print(f"  [yellow]skip[/yellow] {name} [dim]({escape(reason)})[/dim]")
 
 
 def _warn_unknown_overlay_keys(project: Project, keys: list[str]) -> None:
     if not keys:
         return
-    err_console.print(f"[yellow]unrecognized key(s) in {project.proxy_overlay_path.name}:[/yellow] {', '.join(keys)}")
+    err_console.print(
+        f"[yellow]unrecognized key(s) in {project.proxy_overlay_path.name}:[/yellow] {escape(', '.join(keys))}"
+    )
     err_console.print(
         f"  [dim]passed through to LiteLLM as-is; known blocks are {', '.join(sorted(proxy.KNOWN_OVERLAY_KEYS))}[/dim]"
     )
@@ -789,19 +798,19 @@ def _wait_for_proxy(project: Project, options: proxy.ProxyOptions, wait_timeout:
                 ),
             )
     except ProxyStartupFailedError as exc:
-        console.print(f"[bold red]Startup failed:[/bold red] {exc}")
+        console.print(f"[bold red]Startup failed:[/bold red] {escape(str(exc))}")
         log_path = proxy.runtime_paths(project).log_path
         if log_path.is_file():
-            console.print(f"[dim]--- last lines of {log_path} ---[/dim]")
+            console.print(f"[dim]--- last lines of {escape(str(log_path))} ---[/dim]")
             for line in _read_last_lines(log_path, 20):
                 print(line)
         raise typer.Exit(code=1) from exc
     except ProxyStartupTimeoutError as exc:
-        console.print(f"[bold red]Timeout:[/bold red] {exc}")
+        console.print(f"[bold red]Timeout:[/bold red] {escape(str(exc))}")
         console.print("  process is still running; tail with: vllmops proxy logs --follow")
         raise typer.Exit(code=1) from exc
 
-    console.print(f"[bold green]ready[/bold green] {proxy.base_url(options.host, options.port)}/v1")
+    console.print(f"[bold green]ready[/bold green] {escape(proxy.base_url(options.host, options.port))}/v1")
 
 
 @proxy_app.command("start")
@@ -825,9 +834,9 @@ def proxy_start(
         result = proxy.start_proxy(project, options)
 
     console.print(f"[green]spawned[/green] litellm proxy pid={result.pid}")
-    console.print(f"  url:    {result.url}/v1")
-    console.print(f"  config: {result.config_path}")
-    console.print(f"  logs:   {result.log_path}")
+    console.print(f"  url:    {escape(result.url)}/v1")
+    console.print(f"  config: {escape(str(result.config_path))}")
+    console.print(f"  logs:   {escape(str(result.log_path))}")
     _print_proxy_models(result.models, result.skipped)
     _warn_unknown_overlay_keys(project, result.unknown_overlay_keys)
 
@@ -869,8 +878,8 @@ def proxy_restart(
         result = proxy.restart_proxy(project, options, timeout=timeout)
 
     console.print(f"[green]respawned[/green] litellm proxy pid={result.pid}")
-    console.print(f"  url:    {result.url}/v1")
-    console.print(f"  config: {result.config_path}")
+    console.print(f"  url:    {escape(result.url)}/v1")
+    console.print(f"  config: {escape(str(result.config_path))}")
     _print_proxy_models(result.models, result.skipped)
     _warn_unknown_overlay_keys(project, result.unknown_overlay_keys)
 
@@ -892,18 +901,18 @@ def proxy_status(
     pid_display = str(status.pid) if status.pid is not None else "-"
     stale = " [yellow](stale pid file)[/yellow]" if status.stale_pid_file else ""
     console.print(f"litellm proxy: {state} pid={pid_display}{stale}")
-    console.print(f"  url:    {status.url}/v1")
-    console.print(
-        f"  config: {status.config_path}{'' if status.config_path.is_file() else ' [dim](not generated yet)[/dim]'}"
-    )
-    console.print(f"  logs:   {status.log_path}")
+    console.print(f"  url:    {escape(status.url)}/v1")
+    not_generated = "" if status.config_path.is_file() else " [dim](not generated yet)[/dim]"
+    console.print(f"  config: {escape(str(status.config_path))}{not_generated}")
+    console.print(f"  logs:   {escape(str(status.log_path))}")
 
     if status.configured_models:
-        console.print(f"  routed: {', '.join(status.configured_models)}")
+        # Read back from litellm.yaml, so overlay aliases of any shape land here.
+        console.print(f"  routed: {escape(', '.join(status.configured_models))}")
     if status.eligible_models != status.configured_models:
-        console.print(f"  eligible: {', '.join(status.eligible_models) or '-'}")
+        console.print(f"  eligible: {escape(', '.join(status.eligible_models) or '-')}")
     if status.drifted:
-        console.print(f"[yellow]config is out of date:[/yellow] {status.drift_reason}")
+        console.print(f"[yellow]config is out of date:[/yellow] {escape(status.drift_reason or '')}")
         console.print("  [dim]run `vllmops proxy restart` to regenerate[/dim]")
 
 
@@ -924,10 +933,10 @@ def proxy_config(
     else:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(rendered, encoding="utf-8")
-        console.print(f"[green]wrote[/green] {out}")
+        console.print(f"[green]wrote[/green] {escape(str(out))}")
 
     for name, reason in result.skipped:
-        err_console.print(f"  [yellow]skip[/yellow] {name} [dim]({reason})[/dim]")
+        err_console.print(f"  [yellow]skip[/yellow] {name} [dim]({escape(reason)})[/dim]")
     _warn_unknown_overlay_keys(project, result.unknown_overlay_keys)
     if not result.models:
         err_console.print("[yellow]no model qualifies: the generated model_list is empty[/yellow]")
@@ -943,11 +952,11 @@ def proxy_logs(
     log_path = proxy.runtime_paths(project).log_path
 
     if not log_path.exists():
-        err_console.print(f"[yellow]no log yet:[/yellow] {log_path}")
+        err_console.print(f"[yellow]no log yet:[/yellow] {escape(str(log_path))}")
         return
 
     if not tail and not follow:
-        console.print(str(log_path))
+        console.print(str(log_path), markup=False, highlight=False)
         return
 
     if tail:
@@ -1010,9 +1019,9 @@ def doctor() -> None:
             label = "[yellow]WARN[/yellow]"
         else:
             label = "[red]FAIL[/red]"
-        table.add_row(label, result.name, result.detail)
+        table.add_row(label, result.name, escape(result.detail))
         if result.hint:
-            table.add_row("", "", f"[dim]hint: {result.hint}[/dim]")
+            table.add_row("", "", f"[dim]hint: {escape(result.hint)}[/dim]")
     console.print(table)
 
     ok = sum(1 for r in results if r.status == "ok")
