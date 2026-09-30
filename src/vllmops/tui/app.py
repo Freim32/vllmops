@@ -238,7 +238,9 @@ class VllmopsApp(App[None]):
             )
             return
         self._profile_views = views
-        self._entries = [entry for view in views for entry in view.entries]
+        # The tree shows a shared model under each profile; everything else
+        # (counts, GPU indices, the gateway) needs it once.
+        self._entries = service.unique_entries(views)
         self._refresh_gpu_indices()
         self._refresh_proxy_status()
         self._models.render_profiles(views)
@@ -248,23 +250,12 @@ class VllmopsApp(App[None]):
         self.refresh_bindings()
         self._maybe_refresh_proxy()
 
-    def _unique_entries(self) -> list[service.CatalogEntry]:
-        """`self._entries` is flattened per profile, so a shared model appears twice."""
-        seen: set[str] = set()
-        unique: list[service.CatalogEntry] = []
-        for entry in self._entries:
-            if entry.name in seen:
-                continue
-            seen.add(entry.name)
-            unique.append(entry)
-        return unique
-
     def _refresh_proxy_status(self) -> None:
         """Read gateway state, reusing the catalog this tick already loaded."""
         project = self._options.project
         try:
             options = proxy.config_options(project)
-            self._proxy_status = proxy.proxy_status(project, options, entries=self._unique_entries())
+            self._proxy_status = proxy.proxy_status(project, options, entries=self._entries)
         except Exception:
             # The header hint is not worth an error toast every two seconds;
             # `vllmops proxy status` reports the actual failure.
@@ -288,7 +279,7 @@ class VllmopsApp(App[None]):
         self.run_worker(self._refresh_proxy(), exclusive=False)
 
     async def _refresh_proxy(self) -> None:
-        entries = self._unique_entries()
+        entries = self._entries
         try:
             refresh = await asyncio.to_thread(proxy.refresh_proxy, self._options.project, entries=entries)
         except Exception as exc:

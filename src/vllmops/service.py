@@ -563,6 +563,24 @@ def list_profiles(
     return views
 
 
+def unique_entries(views: list[ProfileView]) -> list[CatalogEntry]:
+    """One entry per model file across profiles, in first-seen order.
+
+    A model can belong to several profiles, so concatenating `view.entries`
+    lists it once per profile: fine for a tree, wrong for anything that counts.
+    Keyed on the file, not the name: two files declaring the same name are two
+    entries (the second one broken), and both must still be counted.
+    """
+    seen: set[Path] = set()
+    unique: list[CatalogEntry] = []
+    for view in views:
+        for entry in view.entries:
+            if entry.yaml_path not in seen:
+                seen.add(entry.yaml_path)
+                unique.append(entry)
+    return unique
+
+
 @dataclass(frozen=True)
 class BulkResult:
     """Outcome of a profile-wide lifecycle operation.

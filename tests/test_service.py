@@ -519,6 +519,35 @@ def test_list_profiles_shared_model_appears_in_each_profile(project: Project) ->
     assert by_name["general"].entries == []
 
 
+def test_unique_entries_lists_a_shared_model_once(project: Project) -> None:
+    write_model_yaml(project, "big", sleeper_payload("big", port=18001))
+    write_model_yaml(project, "small", sleeper_payload("small", port=18002))
+    write_model_yaml(project, "loose", sleeper_payload("loose", port=18003))
+    project = _set_profiles(project, {"dual": ["big"], "gpts": ["big", "small"]})
+
+    entries = service.unique_entries(service.list_profiles(project))
+
+    assert [e.name for e in entries] == ["big", "small", "loose"]
+
+
+def test_unique_entries_with_only_the_general_group(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    write_model_yaml(project, "b", sleeper_payload("b", port=18002))
+
+    entries = service.unique_entries(service.list_profiles(project))
+
+    assert [e.name for e in entries] == ["a", "b"]
+
+
+def test_unique_entries_keeps_a_second_file_with_the_same_name(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    write_model_yaml(project, "a-copy", sleeper_payload("a", port=18002))
+
+    entries = service.unique_entries(service.list_profiles(project))
+
+    assert [(e.name, e.is_broken) for e in entries] == [("a", False), ("a", True)]
+
+
 def test_list_profiles_unassigned_models_go_to_general(project: Project) -> None:
     write_model_yaml(project, "a", sleeper_payload("a", port=18001))
     write_model_yaml(project, "b", sleeper_payload("b", port=18002))
