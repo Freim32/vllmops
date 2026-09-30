@@ -36,6 +36,9 @@ proxy_app = typer.Typer(help="Run one LiteLLM gateway in front of the vLLM model
 app.add_typer(profile_app, name="profile")
 app.add_typer(proxy_app, name="proxy")
 console = Console()
+# For commands whose stdout is data (`proxy config`, `logs -n`): notes and
+# warnings go here so a redirect or a pipe receives only the data.
+err_console = Console(stderr=True)
 
 
 def _version_callback(value: bool) -> None:
@@ -655,7 +658,7 @@ def logs(
     paths = service.runtime_paths_for(project, model_name)
 
     if not paths.log_path.exists():
-        console.print(f"[yellow]no log yet:[/yellow] {paths.log_path}")
+        err_console.print(f"[yellow]no log yet:[/yellow] {paths.log_path}")
         return
 
     if not tail and not follow:
@@ -768,8 +771,8 @@ def _print_proxy_models(models: list[proxy.ProxyModelEntry], skipped: list[tuple
 def _warn_unknown_overlay_keys(project: Project, keys: list[str]) -> None:
     if not keys:
         return
-    console.print(f"[yellow]unrecognized key(s) in {project.proxy_overlay_path.name}:[/yellow] {', '.join(keys)}")
-    console.print(
+    err_console.print(f"[yellow]unrecognized key(s) in {project.proxy_overlay_path.name}:[/yellow] {', '.join(keys)}")
+    err_console.print(
         f"  [dim]passed through to LiteLLM as-is; known blocks are {', '.join(sorted(proxy.KNOWN_OVERLAY_KEYS))}[/dim]"
     )
 
@@ -924,10 +927,10 @@ def proxy_config(
         console.print(f"[green]wrote[/green] {out}")
 
     for name, reason in result.skipped:
-        console.print(f"  [yellow]skip[/yellow] {name} [dim]({reason})[/dim]")
+        err_console.print(f"  [yellow]skip[/yellow] {name} [dim]({reason})[/dim]")
     _warn_unknown_overlay_keys(project, result.unknown_overlay_keys)
     if not result.models:
-        console.print("[yellow]no model qualifies: the generated model_list is empty[/yellow]")
+        err_console.print("[yellow]no model qualifies: the generated model_list is empty[/yellow]")
 
 
 @proxy_app.command("logs")
@@ -940,7 +943,7 @@ def proxy_logs(
     log_path = proxy.runtime_paths(project).log_path
 
     if not log_path.exists():
-        console.print(f"[yellow]no log yet:[/yellow] {log_path}")
+        err_console.print(f"[yellow]no log yet:[/yellow] {log_path}")
         return
 
     if not tail and not follow:
