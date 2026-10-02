@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -21,9 +22,9 @@ from tests.conftest import (
     sleeper_payload,
     write_model_yaml,
 )
-from vllmops import service
+from vllmops import lifecycle, service
 from vllmops.config import ModelConfig, VllmConfig
-from vllmops.project import Project
+from vllmops.project import GENERAL_PROFILE, Project
 from vllmops.service import (
     ModelNotRunningError,
     ModelStartupFailedError,
@@ -194,10 +195,7 @@ def test_status_no_pid_file_reports_stopped(project: Project) -> None:
     assert status.stale_pid_file is False
 
 
-@posix_only
 def test_status_stale_pid_detected(project: Project) -> None:
-    """is_alive() relies on POSIX `kill(pid, 0)` semantics; Windows can't reliably
-    distinguish a non-existent PID from a permission error."""
     paths = service.runtime_paths_for(project, "ghost")
     paths.pid_path.parent.mkdir(parents=True, exist_ok=True)
     paths.pid_path.write_text("99999999")
@@ -213,18 +211,6 @@ def test_status_running_when_pid_alive(project: Project) -> None:
     status = service.get_model_status(project, "self")
     assert status.running is True
     assert status.pid == os.getpid()
-
-
-def test_list_model_statuses_empty_catalog(project: Project) -> None:
-    assert service.list_model_statuses(project) == []
-
-
-def test_list_model_statuses_iterates_catalog(project: Project) -> None:
-    free = 18001
-    write_model_yaml(project, "a", sleeper_payload("a", port=free))
-    write_model_yaml(project, "b", sleeper_payload("b", port=free + 1))
-    statuses = service.list_model_statuses(project)
-    assert {s.name for s in statuses} == {"a", "b"}
 
 
 # --- list_catalog_entries (lenient) ---
@@ -386,7 +372,7 @@ def test_can_stop_broken_with_live_pid(project: Project, monkeypatch: pytest.Mon
     paths.pid_path.parent.mkdir(parents=True, exist_ok=True)
     paths.pid_path.write_text("12345", encoding="utf-8")
 
-    monkeypatch.setattr(service.lifecycle, "is_alive", lambda pid: pid == 12345)
+    monkeypatch.setattr(lifecycle, "is_alive", lambda pid: pid == 12345)
 
     broken_entry = next(e for e in service.list_catalog_entries(project) if e.name == "broken")
     assert broken_entry.is_broken
@@ -411,7 +397,7 @@ def test_can_stop_broken_with_dead_pid(project: Project, monkeypatch: pytest.Mon
     paths.pid_path.parent.mkdir(parents=True, exist_ok=True)
     paths.pid_path.write_text("99999", encoding="utf-8")
 
-    monkeypatch.setattr(service.lifecycle, "is_alive", lambda pid: False)
+    monkeypatch.setattr(lifecycle, "is_alive", lambda pid: False)
 
     broken_entry = next(e for e in service.list_catalog_entries(project) if e.name == "broken")
     assert service.can_stop(project, broken_entry) is False
@@ -531,6 +517,75 @@ def test_list_profiles_shared_model_appears_in_each_profile(project: Project) ->
     assert {e.name for e in by_name["dev"].entries} == {"shared", "only_dev"}
     assert {e.name for e in by_name["prod"].entries} == {"shared"}
     assert by_name["general"].entries == []
+
+
+def test_unique_entries_lists_a_shared_model_once(project: Project) -> None:
+    write_model_yaml(project, "big", sleeper_payload("big", port=18001))
+    write_model_yaml(project, "small", sleeper_payload("small", port=18002))
+    write_model_yaml(project, "loose", sleeper_payload("loose", port=18003))
+    project = _set_profiles(project, {"dual": ["big"], "gpts": ["big", "small"]})
+
+    entries = service.unique_entries(service.list_profiles(project))
+
+    assert [e.name for e in entries] == ["big", "small", "loose"]
+
+
+def test_unique_entries_with_only_the_general_group(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    write_model_yaml(project, "b", sleeper_payload("b", port=18002))
+
+    entries = service.unique_entries(service.list_profiles(project))
+
+    assert [e.name for e in entries] == ["a", "b"]
+
+
+def _project_with_a_duplicated_name(project: Project) -> Project:
+    """Files load in sorted order: a.yaml is the valid one, z-copy.yaml the broken duplicate."""
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    write_model_yaml(project, "z-copy", sleeper_payload("a", port=18002))
+    return _set_profiles(project, {"dev": ["a"]})
+
+
+def test_a_profile_keeps_the_valid_file_when_two_files_share_a_name(project: Project) -> None:
+    project = _project_with_a_duplicated_name(project)
+
+    dev = next(v for v in service.list_profiles(project) if v.name == "dev")
+
+    assert [(e.yaml_path.name, e.is_broken) for e in dev.entries] == [("a.yaml", False), ("z-copy.yaml", True)]
+
+
+def test_start_profile_skips_the_broken_duplicate_and_starts_the_valid_file(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _project_with_a_duplicated_name(project)
+    started: list[str] = []
+
+    def fake_start(project: Project, name: str, config_dir: Path | None = None) -> None:
+        started.append(name)
+
+    monkeypatch.setattr(service, "start_model", fake_start)
+
+    result = service.start_profile(project, "dev")
+
+    assert started == ["a"]
+    assert result.skipped == [("a", "invalid YAML")]
+
+
+def test_unique_entries_counts_both_files_of_a_duplicated_name_in_a_profile(project: Project) -> None:
+    project = _project_with_a_duplicated_name(project)
+
+    entries = service.unique_entries(service.list_profiles(project))
+
+    assert [(e.yaml_path.name, e.is_broken) for e in entries] == [("a.yaml", False), ("z-copy.yaml", True)]
+
+
+def test_unique_entries_keeps_a_second_file_with_the_same_name(project: Project) -> None:
+    write_model_yaml(project, "a", sleeper_payload("a", port=18001))
+    write_model_yaml(project, "a-copy", sleeper_payload("a", port=18002))
+
+    entries = service.unique_entries(service.list_profiles(project))
+
+    assert [(e.name, e.is_broken) for e in entries] == [("a", False), ("a", True)]
 
 
 def test_list_profiles_unassigned_models_go_to_general(project: Project) -> None:
@@ -675,8 +730,8 @@ def test_start_profile_general_works_without_declaration(project: Project) -> No
     """The synthetic 'general' profile must accept bulk operations even
     though it's never declared in config."""
     write_model_yaml(project, "a", sleeper_payload("a", port=18001))
-    result = service.start_profile(project, service.GENERAL_PROFILE)
-    assert result.profile == service.GENERAL_PROFILE
+    result = service.start_profile(project, GENERAL_PROFILE)
+    assert result.profile == GENERAL_PROFILE
     # On non-POSIX, the start will fail; what matters is the routing reaches it.
     assert result.total == 1
 
@@ -727,6 +782,18 @@ def test_build_command_args_unknown_model_still_raises_with_broken_sibling(
 
     with pytest.raises(UnknownModelError):
         service.build_command_args(project, "nonexistent")
+
+
+def test_build_command_args_names_a_broken_file_instead_of_unknown(project: Project) -> None:
+    project.models_dir.mkdir(parents=True, exist_ok=True)
+    bad = project.models_dir / "bad.yaml"
+    bad.write_text("name: bad\nbogus_field: 1\n", encoding="utf-8")
+
+    with pytest.raises(service.InvalidModelConfigError) as excinfo:
+        service.build_command_args(project, "bad")
+
+    assert excinfo.value.path == bad
+    assert excinfo.value.reason.startswith("missing required field `vllm`")
 
 
 def test_find_model_returns_none_when_missing(project: Project) -> None:
@@ -840,9 +907,7 @@ def test_wait_for_ready_no_pid_file_raises(project: Project) -> None:
         wait_for_ready(project, "m", timeout=1.0)
 
 
-@posix_only
 def test_wait_for_ready_dead_pid_raises_startup_failed(project: Project) -> None:
-    """Relies on POSIX kill(pid, 0) semantics to detect a non-existent PID."""
     write_model_yaml(project, "m", sleeper_payload("m", port=18001))
     paths = service.runtime_paths_for(project, "m")
     paths.pid_path.parent.mkdir(parents=True, exist_ok=True)
@@ -958,8 +1023,8 @@ def test_fast_exit_payload_is_valid_yaml(project: Project) -> None:
 # --- smoke_test_model ---
 
 
-def _make_model_cfg(args: dict | None = None, extra: list[str] | None = None) -> ModelConfig:
-    """Tiny ModelConfig builder for _resolve_served_name unit tests."""
+def _make_model_cfg(args: dict[str, Any] | None = None, extra: list[str] | None = None) -> ModelConfig:
+    """Tiny ModelConfig builder for resolve_served_name unit tests."""
     return ModelConfig(
         name="x",
         vllm=VllmConfig(
@@ -972,27 +1037,27 @@ def _make_model_cfg(args: dict | None = None, extra: list[str] | None = None) ->
 
 def test_resolve_served_name_falls_back_to_vllm_model() -> None:
     cfg = _make_model_cfg()
-    assert service._resolve_served_name(cfg) == "hf/foo"
+    assert service.resolve_served_name(cfg) == "hf/foo"
 
 
 def test_resolve_served_name_honors_args_dict() -> None:
     cfg = _make_model_cfg(args={"--served-model-name": "alias"})
-    assert service._resolve_served_name(cfg) == "alias"
+    assert service.resolve_served_name(cfg) == "alias"
 
 
 def test_resolve_served_name_takes_first_when_list() -> None:
     cfg = _make_model_cfg(args={"--served-model-name": ["primary", "alt"]})
-    assert service._resolve_served_name(cfg) == "primary"
+    assert service.resolve_served_name(cfg) == "primary"
 
 
 def test_resolve_served_name_honors_extra_args() -> None:
     cfg = _make_model_cfg(extra=["--served-model-name", "from-extra"])
-    assert service._resolve_served_name(cfg) == "from-extra"
+    assert service.resolve_served_name(cfg) == "from-extra"
 
 
 def test_resolve_served_name_extra_args_without_value_falls_back() -> None:
     cfg = _make_model_cfg(extra=["--served-model-name"])
-    assert service._resolve_served_name(cfg) == "hf/foo"
+    assert service.resolve_served_name(cfg) == "hf/foo"
 
 
 @posix_only

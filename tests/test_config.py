@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -20,7 +21,7 @@ from vllmops.config import (
 )
 
 
-def _valid_model(name: str = "m1", port: int = 8001) -> dict:
+def _valid_model(name: str = "m1", port: int = 8001) -> dict[str, Any]:
     return {
         "name": name,
         "env": {"CUDA_VISIBLE_DEVICES": "0"},
@@ -82,10 +83,11 @@ def test_model_name_pattern_rejects_invalid() -> None:
         ModelConfig.model_validate(payload)
 
 
-def test_model_rejects_secret_env_keys() -> None:
+@pytest.mark.parametrize("key", ["HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "LITELLM_MASTER_KEY"])
+def test_model_rejects_secret_env_keys(key: str) -> None:
     payload = _valid_model()
-    payload["env"]["HF_TOKEN"] = "leak"
-    with pytest.raises(ValidationError, match="HF_TOKEN"):
+    payload["env"][key] = "leak"
+    with pytest.raises(ValidationError, match=key):
         ModelConfig.model_validate(payload)
 
 

@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vllmops.project import NAME_PATTERN_STR
 
-SECRET_ENV_KEYS = {"HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"}
+SECRET_ENV_KEYS = {"HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "LITELLM_MASTER_KEY"}
 
 
 class VllmConfig(BaseModel):

@@ -1,17 +1,47 @@
 """POSIX process primitives for managing bare-metal vLLM processes."""
 
+import ctypes
 import errno
 import os
 import signal
 import subprocess
 import sys
 import time
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
+
+_WIN32_QUERY_LIMITED_INFORMATION = 0x1000
+_WIN32_ERROR_ACCESS_DENIED = 5
+_WIN32_STILL_ACTIVE = 259
 
 
 def ensure_supported_platform() -> None:
     if sys.platform == "win32":
         raise RuntimeError("vllmops lifecycle commands require POSIX (Linux/macOS); Windows is not supported.")
+
+
+def _win32_pid_exists(pid: int) -> bool:
+    """Ask the kernel for a handle on the process.
+
+    Windows numbers CTRL_C_EVENT as signal 0, so `os.kill(pid, 0)` there does not
+    probe anything: it sends a console interrupt to that process group, and a
+    caller asking about its own PID gets a KeyboardInterrupt of its own.
+    """
+    if sys.platform != "win32":  # keeps the calls below out of the POSIX type view
+        return False
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(_WIN32_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        # A process we are not allowed to query is still a process.
+        return ctypes.get_last_error() == _WIN32_ERROR_ACCESS_DENIED
+    try:
+        exit_code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return True
+        return exit_code.value == _WIN32_STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def is_alive(pid: int) -> bool:
@@ -24,15 +54,17 @@ def is_alive(pid: int) -> bool:
     if pid <= 0:
         return False
 
-    if sys.platform != "win32":
-        try:
-            reaped_pid, _ = os.waitpid(pid, os.WNOHANG)  # type: ignore[attr-defined]
-            if reaped_pid == pid:
-                return False
-        except ChildProcessError:
-            pass
-        except OSError:
-            pass
+    if sys.platform == "win32":
+        return _win32_pid_exists(pid)
+
+    try:
+        reaped_pid, _ = os.waitpid(pid, os.WNOHANG)
+        if reaped_pid == pid:
+            return False
+    except ChildProcessError:
+        pass
+    except OSError:
+        pass
 
     try:
         os.kill(pid, 0)
@@ -56,26 +88,53 @@ def read_pid(pid_path: Path) -> int | None:
         return None
 
 
+class LogMode(Enum):
+    """How a spawn treats the log file left by the previous run."""
+
+    # One file per run, the previous one kept as <log>.prev.
+    ROTATE = "rotate"
+    # One file across runs, each start marked by a line; rotated only past APPEND_LOG_MAX_BYTES.
+    APPEND = "append"
+
+
+APPEND_LOG_MAX_BYTES = 50 * 1024 * 1024
+
+
+def prepare_log_file(log_path: Path, mode: LogMode) -> str:
+    """Get log_path ready for a new run and return the mode to open it with."""
+    if mode is LogMode.ROTATE:
+        rotate_log_file(log_path)
+        return "wb"
+    if log_path.is_file() and log_path.stat().st_size > APPEND_LOG_MAX_BYTES:
+        rotate_log_file(log_path)
+    started = datetime.now().astimezone().isoformat(timespec="seconds")
+    with open(log_path, "a", encoding="utf-8") as handle:
+        handle.write(f"=== vllmops: process started {started} ===\n")
+    return "ab"
+
+
 def spawn_detached(
     cmd: list[str],
     env: dict[str, str],
     log_path: Path,
     pid_path: Path,
+    *,
+    log_mode: LogMode = LogMode.ROTATE,
 ) -> int:
     """Spawn a detached background process and write its PID to pid_path.
 
     The env dict is used verbatim as the child's environment. The child
     becomes its own session leader so the whole group can later be signaled
-    with `os.killpg(pid, ...)`. Each spawn rotates the existing log file to
-    `<log_path>.prev` so the new run starts with a clean log.
+    with `os.killpg(pid, ...)`. `log_mode` decides what happens to the log of
+    the previous run, see `LogMode`.
     """
     ensure_supported_platform()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     pid_path.parent.mkdir(parents=True, exist_ok=True)
 
-    rotate_log_file(log_path)
+    open_mode = prepare_log_file(log_path, log_mode)
 
-    log_handle = open(log_path, "wb", buffering=0)
+    log_handle = open(log_path, open_mode, buffering=0)
     try:
         process = subprocess.Popen(
             cmd,
@@ -112,7 +171,8 @@ def rotate_log_file(log_path: Path) -> Path | None:
 def _signal_group_or_pid(pid: int, sig: int) -> bool:
     """Send a signal to the process group, falling back to the pid alone."""
     try:
-        os.killpg(pid, sig)  # type: ignore[attr-defined]
+        # POSIX-only in typeshed: the ignore is needed on Windows, unused on Linux.
+        os.killpg(pid, sig)  # type: ignore[attr-defined, unused-ignore]
         return True
     except ProcessLookupError:
         return False
@@ -141,7 +201,7 @@ def terminate(pid: int, timeout: float = 30.0) -> bool:
             return True
         time.sleep(0.2)
 
-    _signal_group_or_pid(pid, signal.SIGKILL)  # type: ignore[attr-defined]
+    _signal_group_or_pid(pid, signal.SIGKILL)  # type: ignore[attr-defined, unused-ignore]
 
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:

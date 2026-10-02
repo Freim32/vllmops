@@ -1,6 +1,6 @@
 [project]
 name = "vllmops"
-version = "0.4.0"
+version = "0.5.0"
 description = "Declarative control plane and TUI for bare-metal vLLM servers."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -9,7 +9,7 @@ license-files = ["LICENSE"]
 authors = [
     { name = "Matteo Benvenuti", email = "matben32@gmail.com" },
 ]
-keywords = ["vllm", "llm", "control-plane", "tui", "metrics", "prometheus"]
+keywords = ["vllm", "llm", "control-plane", "tui", "metrics", "prometheus", "litellm", "proxy", "gateway"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -24,6 +24,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: System :: Systems Administration",
     "Topic :: Utilities",
 ]
@@ -42,10 +44,12 @@ Issues = "https://github.com/Freim32/vllmops/issues"
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.14.10",
-    "mypy>=1.0.0",
+    "ruff>=0.16",
+    "mypy>=2.3",
+    "pyright>=1.1.407",
     "poethepoet>=0.33.0",
     "pytest>=8.0",
+    "pytest-cov>=6.0",
     "pytest-timeout>=2.3",
     "types-pyyaml>=6.0.12.20260518",
 ]
@@ -57,10 +61,12 @@ vllmops = "vllmops.cli:app"
 lint-fix = "uv run --extra dev ruff check --fix"
 format-code = "uv run --extra dev ruff format"
 type-check = "uv run --extra dev mypy --no-incremental"
+type-check-pyright = "uv run --extra dev pyright"
 test = "uv run --extra dev pytest"
+cov = "uv run --extra dev pytest --cov=vllmops --cov-report=term-missing"
 
 [tool.poe.tasks.checks]
-sequence = ["lint-fix", "format-code", "type-check", "test"]
+sequence = ["lint-fix", "format-code", "type-check", "type-check-pyright", "test"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -10,6 +10,7 @@ from vllmops.project import (
     PROJECT_CONFIG,
     PROJECT_DIR,
     ProjectConfig,
+    ProjectConfigError,
     find_project_root,
     init_project,
     load_project,
@@ -173,6 +174,41 @@ def test_load_project_after_init_resolves_paths(tmp_path: Path) -> None:
     assert project.models_dir == tmp_path / "configs" / "models"
 
 
+def _write_config(tmp_path: Path, text: str) -> Path:
+    init_project(tmp_path)
+    cfg_path = tmp_path / PROJECT_DIR / PROJECT_CONFIG
+    cfg_path.write_text(text, encoding="utf-8")
+    return cfg_path
+
+
+def test_load_project_summarizes_an_invalid_value(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, "proxy:\n  expose: tutti\n")
+
+    with pytest.raises(ProjectConfigError) as excinfo:
+        load_project(tmp_path)
+
+    assert excinfo.value.path == cfg_path
+    assert excinfo.value.summary == "`proxy.expose`: Input should be 'running' or 'all'"
+
+
+def test_load_project_summarizes_an_unknown_key(tmp_path: Path) -> None:
+    _write_config(tmp_path, "proxy:\n  exopse: all\n")
+
+    with pytest.raises(ProjectConfigError) as excinfo:
+        load_project(tmp_path)
+
+    assert excinfo.value.summary == "unknown field `proxy.exopse` (remove it or check spelling)"
+
+
+def test_load_project_summarizes_broken_yaml(tmp_path: Path) -> None:
+    _write_config(tmp_path, "proxy: [\n")
+
+    with pytest.raises(ProjectConfigError) as excinfo:
+        load_project(tmp_path)
+
+    assert excinfo.value.summary.startswith("YAML syntax error at line ")
+
+
 def test_find_project_root_walks_up(tmp_path: Path) -> None:
     init_project(tmp_path)
     deep = tmp_path / "a" / "b" / "c"
@@ -217,7 +253,7 @@ def test_profiles_round_trip_from_yaml(tmp_path: Path) -> None:
 def test_profiles_reject_reserved_general_name(tmp_path: Path) -> None:
     init_project(tmp_path)
     _rewrite_config_profiles(tmp_path, {"general": ["a"]})
-    with pytest.raises(Exception, match="reserved"):
+    with pytest.raises(ProjectConfigError, match="reserved"):
         load_project(tmp_path)
 
 
@@ -232,7 +268,7 @@ def test_profiles_allow_same_model_in_multiple_profiles(tmp_path: Path) -> None:
 def test_profiles_reject_invalid_profile_name(tmp_path: Path) -> None:
     init_project(tmp_path)
     _rewrite_config_profiles(tmp_path, {"has spaces": ["a"]})
-    with pytest.raises(Exception, match="invalid profile name"):
+    with pytest.raises(ProjectConfigError, match="profile name must match the allowed pattern"):
         load_project(tmp_path)
 
 

@@ -64,6 +64,15 @@ class PortConflictError(RuntimeError):
     """Raised when starting a model whose metrics_port is already taken by another running model."""
 
 
+class InvalidModelConfigError(ValueError):
+    """Raised when the requested model's YAML exists but does not load."""
+
+    def __init__(self, path: Path, reason: str) -> None:
+        super().__init__(f"{path}: {reason}")
+        self.path = path
+        self.reason = reason
+
+
 @dataclass(frozen=True)
 class CreateModelResult:
     destination: Path
@@ -315,6 +324,10 @@ def build_command_args(
     """
     model = find_model(project, model_name, config_dir)
     if model is None:
+        # A broken file is listed under its file stem, the one name it still has.
+        for entry in list_catalog_entries(project, config_dir):
+            if entry.name == model_name and entry.error is not None:
+                raise InvalidModelConfigError(entry.yaml_path, entry.error)
         raise UnknownModelError(model_name)
     args = list(model.command_args())
     args[0] = resolve_vllm_executable(project, model.vllm.executable)
@@ -398,23 +411,15 @@ def get_model_status(
     )
 
 
-def list_model_statuses(
-    project: Project,
-    config_dir: Path | None = None,
-) -> list[ModelStatus]:
-    catalog = load_catalog_or_empty_for(project, config_dir)
-    return [get_model_status(project, model.name, config_dir) for model in catalog.models]
-
-
 def list_catalog_entries(
     project: Project,
     config_dir: Path | None = None,
 ) -> list[CatalogEntry]:
     """Return one entry per YAML in the models dir, including broken ones.
 
-    Unlike `list_model_statuses`, a single invalid file does not abort the
-    whole listing; it becomes a `CatalogEntry(error=...)` row. Duplicate
-    names or ports also produce broken rows.
+    A single invalid file does not abort the whole listing; it becomes a
+    `CatalogEntry(error=...)` row. Duplicate names or ports also produce
+    broken rows.
     """
     from vllmops.config import load_model_file  # noqa: PLC0415
 
@@ -535,7 +540,11 @@ def list_profiles(
     Use `[v for v in list_profiles(...) if v.entries]` to filter for rendering.
     """
     entries = list_catalog_entries(project, config_dir)
-    by_name = {entry.name: entry for entry in entries}
+    # A list per name: two files declaring the same name are both kept, the
+    # valid one and its broken duplicate, so the conflict shows up where it matters.
+    by_name: dict[str, list[CatalogEntry]] = {}
+    for entry in entries:
+        by_name.setdefault(entry.name, []).append(entry)
 
     assigned: set[str] = set()
     views: list[ProfileView] = []
@@ -544,11 +553,11 @@ def list_profiles(
         profile_entries: list[CatalogEntry] = []
         missing: list[str] = []
         for model_name in model_names:
-            entry = by_name.get(model_name)
-            if entry is None:
+            named = by_name.get(model_name)
+            if named is None:
                 missing.append(model_name)
             else:
-                profile_entries.append(entry)
+                profile_entries.extend(named)
                 assigned.add(model_name)
         views.append(ProfileView(name=profile_name, entries=profile_entries, missing=missing))
 
@@ -556,6 +565,24 @@ def list_profiles(
     views.append(ProfileView(name=GENERAL_PROFILE, entries=general_entries, missing=[]))
 
     return views
+
+
+def unique_entries(views: list[ProfileView]) -> list[CatalogEntry]:
+    """One entry per model file across profiles, in first-seen order.
+
+    A model can belong to several profiles, so concatenating `view.entries`
+    lists it once per profile: fine for a tree, wrong for anything that counts.
+    Keyed on the file, not the name: two files declaring the same name are two
+    entries (the second one broken), and both must still be counted.
+    """
+    seen: set[Path] = set()
+    unique: list[CatalogEntry] = []
+    for view in views:
+        for entry in view.entries:
+            if entry.yaml_path not in seen:
+                seen.add(entry.yaml_path)
+                unique.append(entry)
+    return unique
 
 
 @dataclass(frozen=True)
@@ -877,7 +904,7 @@ class SmokeTestResult:
     latency_seconds: float
 
 
-def _resolve_served_name(model_cfg: ModelConfig) -> str:
+def resolve_served_name(model_cfg: ModelConfig) -> str:
     """Resolve the name vLLM will serve under for /v1 routes.
 
     Honors `--served-model-name` if present in `args` (dict) or `extra_args`
@@ -929,7 +956,7 @@ def smoke_test_model(
         raise SmokeTestError(f"{model_name} has no metrics_port configured")
 
     try:
-        served = _resolve_served_name(load_model_file(entry.yaml_path))
+        served = resolve_served_name(load_model_file(entry.yaml_path))
     except Exception as exc:
         raise SmokeTestError(f"could not read YAML: {exc}") from exc
 
@@ -1022,7 +1049,8 @@ def probe_health(url: str, timeout: float = 1.5) -> bool:
     """Return True when the URL responds with 2xx, False on any other outcome."""
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310 (local URL)
-            return 200 <= response.status < 300
+            status: int = response.status
+            return 200 <= status < 300
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
         return False
 

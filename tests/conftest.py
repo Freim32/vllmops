@@ -8,6 +8,7 @@ import threading
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -24,7 +25,7 @@ def project(tmp_path: Path) -> Project:
     return load_project(tmp_path)
 
 
-def write_model_yaml(project: Project, name: str, payload: dict) -> Path:
+def write_model_yaml(project: Project, name: str, payload: dict[str, Any]) -> Path:
     """Write a model YAML directly under the project's models dir, bypassing service helpers."""
     project.models_dir.mkdir(parents=True, exist_ok=True)
     path = project.models_dir / f"{name}.yaml"
@@ -32,9 +33,9 @@ def write_model_yaml(project: Project, name: str, payload: dict) -> Path:
     return path
 
 
-def sleeper_payload(name: str, port: int, with_metrics: bool = True) -> dict:
+def sleeper_payload(name: str, port: int, with_metrics: bool = True) -> dict[str, Any]:
     """A minimal model that runs `python -c "time.sleep(60)"` instead of vLLM."""
-    payload: dict = {
+    payload: dict[str, Any] = {
         "name": name,
         "env": {},
         "vllm": {
@@ -51,7 +52,7 @@ def sleeper_payload(name: str, port: int, with_metrics: bool = True) -> dict:
     return payload
 
 
-def fast_exit_payload(name: str, port: int) -> dict:
+def fast_exit_payload(name: str, port: int) -> dict[str, Any]:
     """A model whose process exits immediately. For startup-failed paths."""
     payload = sleeper_payload(name, port)
     payload["vllm"]["model"] = "import sys; sys.exit(7)"
@@ -62,7 +63,8 @@ def free_port() -> int:
     """OS-assigned free TCP port (small race window)."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+        port: int = sock.getsockname()[1]
+        return port
 
 
 class _SilentHandler(BaseHTTPRequestHandler):

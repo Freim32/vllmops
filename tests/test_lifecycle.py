@@ -98,6 +98,39 @@ def test_rotate_log_file_overwrites_existing_prev(tmp_path: Path) -> None:
     assert backup_path.read_text(encoding="utf-8") == "second run"
 
 
+def test_prepare_log_file_rotate_moves_the_old_log_aside(tmp_path: Path) -> None:
+    log_path = tmp_path / "model.log"
+    log_path.write_text("old run\n", encoding="utf-8")
+
+    assert lifecycle.prepare_log_file(log_path, lifecycle.LogMode.ROTATE) == "wb"
+
+    assert not log_path.exists()
+    assert (tmp_path / "model.log.prev").read_text(encoding="utf-8") == "old run\n"
+
+
+def test_prepare_log_file_append_keeps_the_old_log_and_marks_the_start(tmp_path: Path) -> None:
+    log_path = tmp_path / "_proxy.log"
+    log_path.write_text("old run\n", encoding="utf-8")
+
+    assert lifecycle.prepare_log_file(log_path, lifecycle.LogMode.APPEND) == "ab"
+
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "old run"
+    assert lines[1].startswith("=== vllmops: process started ")
+    assert not (tmp_path / "_proxy.log.prev").exists()
+
+
+def test_prepare_log_file_append_rotates_past_the_size_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(lifecycle, "APPEND_LOG_MAX_BYTES", 10)
+    log_path = tmp_path / "_proxy.log"
+    log_path.write_text("more than ten bytes\n", encoding="utf-8")
+
+    lifecycle.prepare_log_file(log_path, lifecycle.LogMode.APPEND)
+
+    assert (tmp_path / "_proxy.log.prev").read_text(encoding="utf-8") == "more than ten bytes\n"
+    assert log_path.read_text(encoding="utf-8").startswith("=== vllmops: process started ")
+
+
 # --- spawn / terminate roundtrip ---
 
 
@@ -146,6 +179,37 @@ def test_spawn_detached_captures_stdout(tmp_path: Path) -> None:
     )
     _wait_until_dead(pid, deadline=3.0)
     assert "hello world" in log_path.read_text(encoding="utf-8")
+
+
+def test_spawn_detached_rotates_by_default(tmp_path: Path) -> None:
+    log_path = tmp_path / "out.log"
+    log_path.write_text("previous run\n", encoding="utf-8")
+    pid = lifecycle.spawn_detached(
+        [sys.executable, "-u", "-c", "print('new run')"],
+        env=dict(os.environ),
+        log_path=log_path,
+        pid_path=tmp_path / "out.pid",
+    )
+    _wait_until_dead(pid, deadline=3.0)
+    assert log_path.read_text(encoding="utf-8") == "new run\n"
+    assert (tmp_path / "out.log.prev").read_text(encoding="utf-8") == "previous run\n"
+
+
+def test_spawn_detached_appends_after_the_previous_run(tmp_path: Path) -> None:
+    log_path = tmp_path / "out.log"
+    log_path.write_text("previous run\n", encoding="utf-8")
+    pid = lifecycle.spawn_detached(
+        [sys.executable, "-u", "-c", "print('new run')"],
+        env=dict(os.environ),
+        log_path=log_path,
+        pid_path=tmp_path / "out.pid",
+        log_mode=lifecycle.LogMode.APPEND,
+    )
+    _wait_until_dead(pid, deadline=3.0)
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "previous run"
+    assert lines[1].startswith("=== vllmops: process started ")
+    assert lines[2] == "new run"
 
 
 def test_terminate_sends_sigterm_then_dies(tmp_path: Path) -> None:
@@ -282,7 +346,7 @@ def test_wait_for_ready_detects_real_process_death(project: Project) -> None:
 # --- bulk profile operations: real spawns in parallel ---
 
 
-def _set_profiles_lifecycle(project: Project, profiles: dict) -> Project:
+def _set_profiles_lifecycle(project: Project, profiles: dict[str, list[str]]) -> Project:
     """Local helper to mutate config.yaml and reload."""
     import yaml as _yaml  # noqa: PLC0415
 

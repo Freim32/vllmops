@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -31,7 +33,7 @@ class _Outer(BaseModel):
     inner: _Inner
 
 
-def _raise(payload: dict) -> ValidationError:
+def _raise(payload: dict[str, Any]) -> ValidationError:
     try:
         _Outer.model_validate(payload)
     except ValidationError as exc:
