@@ -14,7 +14,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/img/tui-running.png" alt="vllmops TUI" width="900">
+  <img src="docs/img/tui-running.png" alt="vllmops TUI with two models running behind the LiteLLM gateway, live vLLM and GPU metrics, and the selected model's log" width="900">
+  <br>
+  <sub>Live metrics and logs per model, one gateway, a broken YAML that blocks nothing.</sub>
 </p>
 
 ---
